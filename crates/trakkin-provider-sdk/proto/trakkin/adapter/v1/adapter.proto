@@ -1,0 +1,863 @@
+syntax = "proto3";
+
+package trakkin.adapter.v1;
+
+import "google/protobuf/duration.proto";
+
+service AdapterService {
+  rpc Handshake(HandshakeRequest) returns (HandshakeResponse);
+  rpc Health(HealthRequest) returns (HealthResponse);
+  rpc DescribeConnection(DescribeConnectionRequest) returns (DescribeConnectionResponse);
+  rpc ValidateConnection(ValidateConnectionRequest) returns (ValidateConnectionResponse);
+  rpc ListAuthenticationMethods(ListAuthenticationMethodsRequest) returns (ListAuthenticationMethodsResponse);
+  rpc StartAuthentication(StartAuthenticationRequest) returns (StartAuthenticationResponse);
+  rpc ContinueAuthentication(ContinueAuthenticationRequest) returns (ContinueAuthenticationResponse);
+  rpc CancelAuthentication(CancelAuthenticationRequest) returns (CancelAuthenticationResponse);
+  rpc OpenConnection(OpenConnectionRequest) returns (OpenConnectionResponse);
+  rpc DiscoverSources(DiscoverSourcesRequest) returns (DiscoverSourcesResponse);
+  rpc ReadCatalog(ReadCatalogRequest) returns (stream ReadCatalogResponse);
+  rpc ReadState(ReadStateRequest) returns (stream ReadStateResponse);
+  rpc ReadTargetedState(ReadTargetedStateRequest) returns (ReadTargetedStateResponse);
+  rpc WriteTargetedState(WriteTargetedStateRequest) returns (WriteTargetedStateResponse);
+  rpc LookupPortableReferences(LookupPortableReferencesRequest) returns (LookupPortableReferencesResponse);
+  rpc ResolvePortableEndpoints(ResolvePortableEndpointsRequest) returns (ResolvePortableEndpointsResponse);
+  rpc ReadAsset(ReadAssetRequest) returns (ReadAssetResponse);
+  rpc CancelOperation(CancelOperationRequest) returns (CancelOperationResponse);
+  rpc Shutdown(ShutdownRequest) returns (ShutdownResponse);
+}
+
+message ProtocolVersion {
+  uint32 major = 1;
+  uint32 minor = 2;
+}
+
+message ProtocolRange {
+  ProtocolVersion minimum = 1;
+  ProtocolVersion maximum = 2;
+}
+
+message Key {
+  string namespace = 1;
+  bytes value = 2;
+}
+
+message Term {
+  string namespace = 1;
+  string name = 2;
+}
+
+message DecimalValue {
+  string value = 1;
+}
+
+message TimestampValue {
+  sint64 milliseconds = 1;
+}
+
+message Value {
+  oneof value {
+    bool boolean = 1;
+    sint64 integer = 2;
+    DecimalValue decimal = 3;
+    string text = 4;
+    bytes bytes = 5;
+    TimestampValue timestamp = 6;
+  }
+}
+
+message Attribute {
+  Term term = 1;
+  Value value = 2;
+}
+
+message PortableReference {
+  string namespace = 1;
+  bytes value = 2;
+}
+
+message PortableEndpoint {
+  PortableReference reference = 1;
+  string selector = 2;
+}
+
+message FieldProblem {
+  string path = 1;
+  string code = 2;
+  string message = 3;
+}
+
+message AdapterError {
+  string code = 1;
+  string safe_message = 2;
+  bool retryable = 3;
+  google.protobuf.Duration retry_after = 4;
+  repeated FieldProblem field_problems = 5;
+}
+
+message HandshakeRequest {
+  ProtocolRange supported_protocol = 1;
+  string host_version = 2;
+  string process_instance_id = 3;
+}
+
+message HandshakeResponse {
+  ProtocolVersion selected_protocol = 1;
+  string adapter_key = 2;
+  string adapter_version = 3;
+  string process_instance_id = 4;
+}
+
+message HealthRequest {}
+
+enum HealthStatus {
+  HEALTH_STATUS_UNSPECIFIED = 0;
+  HEALTH_STATUS_READY = 1;
+  HEALTH_STATUS_DEGRADED = 2;
+  HEALTH_STATUS_NOT_READY = 3;
+}
+
+message HealthResponse {
+  HealthStatus status = 1;
+  AdapterError error = 2;
+}
+
+enum ConfigurationValueKind {
+  CONFIGURATION_VALUE_KIND_UNSPECIFIED = 0;
+  CONFIGURATION_VALUE_KIND_TEXT = 1;
+  CONFIGURATION_VALUE_KIND_INTEGER = 2;
+  CONFIGURATION_VALUE_KIND_DECIMAL = 3;
+  CONFIGURATION_VALUE_KIND_BOOLEAN = 4;
+  CONFIGURATION_VALUE_KIND_TIMESTAMP = 5;
+  CONFIGURATION_VALUE_KIND_BYTES = 6;
+}
+
+message ConfigurationOption {
+  Value value = 1;
+  string display_name = 2;
+}
+
+message ConfigurationField {
+  string key = 1;
+  string display_name = 2;
+  ConfigurationValueKind value_kind = 3;
+  bool required = 4;
+  bool secret = 5;
+  repeated ConfigurationOption options = 6;
+  Value default_value = 7;
+  string placeholder = 8;
+}
+
+message ConfigurationValue {
+  string key = 1;
+  Value value = 2;
+}
+
+message SecretValue {
+  string key = 1;
+  bytes value = 2;
+}
+
+message RemoveSecret {}
+
+message SecretPatch {
+  string key = 1;
+  oneof patch {
+    bytes set = 2;
+    RemoveSecret remove = 3;
+  }
+}
+
+message DescribeConnectionRequest {}
+
+message DescribeConnectionResult {
+  repeated ConfigurationField fields = 1;
+}
+
+message DescribeConnectionResponse {
+  oneof outcome {
+    DescribeConnectionResult result = 1;
+    AdapterError error = 2;
+  }
+}
+
+message ValidateConnectionRequest {
+  repeated ConfigurationValue settings = 1;
+  repeated SecretValue secrets = 2;
+}
+
+message ValidateConnectionResult {
+  repeated FieldProblem field_problems = 1;
+}
+
+message ValidateConnectionResponse {
+  oneof outcome {
+    ValidateConnectionResult result = 1;
+    AdapterError error = 2;
+  }
+}
+
+message ListAuthenticationMethodsRequest {}
+
+message AuthenticationMethod {
+  string key = 1;
+  string display_name = 2;
+  repeated Term interactions = 3;
+  repeated ConfigurationField fields = 4;
+}
+
+message ListAuthenticationMethodsResult {
+  repeated AuthenticationMethod methods = 1;
+}
+
+message ListAuthenticationMethodsResponse {
+  oneof outcome {
+    ListAuthenticationMethodsResult result = 1;
+    AdapterError error = 2;
+  }
+}
+
+message StartAuthenticationRequest {
+  string method = 1;
+  repeated ConfigurationValue values = 2;
+}
+
+message ContinueAuthenticationRequest {
+  string authentication_id = 1;
+  repeated ConfigurationValue values = 2;
+}
+
+enum AuthenticationStatus {
+  AUTHENTICATION_STATUS_UNSPECIFIED = 0;
+  AUTHENTICATION_STATUS_WAITING = 1;
+  AUTHENTICATION_STATUS_INPUT_REQUIRED = 2;
+  AUTHENTICATION_STATUS_COMPLETED = 3;
+  AUTHENTICATION_STATUS_CANCELLED = 4;
+  AUTHENTICATION_STATUS_EXPIRED = 5;
+  AUTHENTICATION_STATUS_FAILED = 6;
+}
+
+message AuthenticationPrompt {
+  string message = 1;
+  string verification_url = 2;
+  string user_code = 3;
+  repeated ConfigurationField fields = 4;
+}
+
+message AccountSnapshot {
+  Key key = 1;
+  string display_name = 2;
+}
+
+message StartAuthenticationResponse {
+  string authentication_id = 1;
+  AuthenticationStatus status = 2;
+  AuthenticationPrompt prompt = 3;
+  repeated AccountSnapshot accounts = 4;
+  repeated SecretPatch secret_patches = 5;
+  google.protobuf.Duration retry_after = 6;
+  AdapterError error = 7;
+}
+
+message ContinueAuthenticationResponse {
+  string authentication_id = 1;
+  AuthenticationStatus status = 2;
+  AuthenticationPrompt prompt = 3;
+  repeated AccountSnapshot accounts = 4;
+  repeated SecretPatch secret_patches = 5;
+  google.protobuf.Duration retry_after = 6;
+  AdapterError error = 7;
+}
+
+message CancelAuthenticationRequest {
+  string authentication_id = 1;
+}
+
+message CancelAuthenticationResult {}
+
+message CancelAuthenticationResponse {
+  oneof outcome {
+    CancelAuthenticationResult result = 1;
+    AdapterError error = 2;
+  }
+}
+
+message ReadCapability {
+  bool full = 1;
+  bool incremental = 2;
+}
+
+message LookupCapability {
+  repeated string reference_namespaces = 1;
+  uint32 maximum_batch_size = 2;
+}
+
+message EndpointLookupCapability {
+  repeated string reference_namespaces = 1;
+  repeated string coordinate_ids = 2;
+  uint32 maximum_batch_size = 3;
+  uint64 maximum_response_bytes = 4;
+}
+
+message ConnectionCapabilities {
+  LookupCapability reference_lookup = 1;
+  EndpointLookupCapability endpoint_lookup = 2;
+  reserved 10 to 19;
+}
+
+message OpenConnectionRequest {
+  repeated ConfigurationValue settings = 1;
+  repeated SecretValue secrets = 2;
+}
+
+message OpenConnectionResult {
+  repeated AccountSnapshot accounts = 1;
+  ConnectionCapabilities capabilities = 2;
+  repeated SecretPatch secret_patches = 3;
+}
+
+message OpenConnectionResponse {
+  oneof outcome {
+    OpenConnectionResult result = 1;
+    AdapterError error = 2;
+  }
+}
+
+message RatingScale {
+  string minimum = 1;
+  string maximum = 2;
+  string step = 3;
+}
+
+message StateFieldDescriptor {
+  Term field = 1;
+  Term unit = 2;
+  ConfigurationValueKind value_kind = 3;
+  RatingScale rating_scale = 4;
+  StateFieldNumericRange numeric_range = 5;
+  StateFieldQuantizer quantizer = 6;
+}
+
+message StateFieldNumericRange {
+  string minimum = 1;
+  string maximum = 2;
+  string step = 3;
+}
+
+enum StateFieldQuantizer {
+  STATE_FIELD_QUANTIZER_UNSPECIFIED = 0;
+  STATE_FIELD_QUANTIZER_EXACT = 1;
+  STATE_FIELD_QUANTIZER_NEAREST = 2;
+  STATE_FIELD_QUANTIZER_FLOOR = 3;
+  STATE_FIELD_QUANTIZER_CEILING = 4;
+}
+
+message AssetCapability {
+  uint64 maximum_bytes = 1;
+  repeated string content_types = 2;
+}
+
+message CoordinateCapability {
+  repeated string coordinate_ids = 1;
+}
+
+message SourceCapabilities {
+  ReadCapability catalog = 1;
+  ReadCapability state = 2;
+  repeated StateFieldDescriptor state_fields = 3;
+  AssetCapability assets = 4;
+  CoordinateCapability coordinates = 5;
+  TargetedStateReadCapability targeted_state_read = 6;
+  TargetedStateWriteCapability targeted_state_write = 7;
+  reserved 10 to 19;
+}
+
+message TargetedStateReadCapability {
+  uint32 maximum_fields = 1;
+  uint64 maximum_response_bytes = 2;
+}
+
+enum TargetedStateWritePreconditionMode {
+  TARGETED_STATE_WRITE_PRECONDITION_MODE_UNSPECIFIED = 0;
+  TARGETED_STATE_WRITE_PRECONDITION_MODE_PROVIDER_TOKEN = 1;
+  TARGETED_STATE_WRITE_PRECONDITION_MODE_HOST_RECHECK_ONLY = 2;
+}
+
+enum TargetedStateWriteIdempotencyMode {
+  TARGETED_STATE_WRITE_IDEMPOTENCY_MODE_UNSPECIFIED = 0;
+  TARGETED_STATE_WRITE_IDEMPOTENCY_MODE_NOT_SUPPORTED = 1;
+  TARGETED_STATE_WRITE_IDEMPOTENCY_MODE_STABLE_KEY = 2;
+}
+
+message TargetedStateFieldWriteCapability {
+  StateField field = 1;
+  bool set_supported = 2;
+  bool clear_supported = 3;
+}
+
+message TargetedStateWriteCapability {
+  repeated TargetedStateFieldWriteCapability fields = 1;
+  bool may_create_source_membership = 2;
+  TargetedStateWritePreconditionMode precondition_mode = 3;
+  TargetedStateWriteIdempotencyMode idempotency_mode = 4;
+  uint32 maximum_fields = 5;
+  uint64 maximum_request_bytes = 6;
+  uint64 maximum_response_bytes = 7;
+  uint64 maximum_receipt_bytes = 8;
+}
+
+enum SourceAvailability {
+  SOURCE_AVAILABILITY_UNSPECIFIED = 0;
+  SOURCE_AVAILABILITY_AVAILABLE = 1;
+  SOURCE_AVAILABILITY_UNAVAILABLE = 2;
+  SOURCE_AVAILABILITY_REMOVED = 3;
+}
+
+message SourceSnapshot {
+  Key key = 1;
+  Key account_key = 2;
+  string display_name = 3;
+  Term kind = 4;
+  SourceAvailability availability = 5;
+  SourceCapabilities capabilities = 6;
+}
+
+message DiscoverSourcesRequest {}
+
+message DiscoverSourcesResult {
+  repeated SourceSnapshot sources = 1;
+  repeated SecretPatch secret_patches = 2;
+}
+
+message DiscoverSourcesResponse {
+  oneof outcome {
+    DiscoverSourcesResult result = 1;
+    AdapterError error = 2;
+  }
+}
+
+enum ReadMode {
+  READ_MODE_UNSPECIFIED = 0;
+  READ_MODE_FULL = 1;
+  READ_MODE_INCREMENTAL = 2;
+}
+
+message ReadCatalogRequest {
+  bytes operation_id = 1;
+  Key source_key = 2;
+  ReadMode mode = 3;
+  bytes prior_cursor = 4;
+  uint32 preferred_batch_size = 5;
+}
+
+message ReadStateRequest {
+  bytes operation_id = 1;
+  Key source_key = 2;
+  ReadMode mode = 3;
+  bytes prior_cursor = 4;
+  uint32 preferred_batch_size = 5;
+}
+
+message ReadHeartbeat {
+  bytes operation_id = 1;
+  uint64 records_emitted = 2;
+}
+
+message BinaryAssetReference {
+  Key key = 1;
+  Term kind = 2;
+}
+
+message ProviderItem {
+  Key key = 1;
+  Term kind = 2;
+  string display_name = 3;
+  repeated Attribute attributes = 4;
+  repeated PortableReference portable_references = 5;
+  repeated BinaryAssetReference assets = 6;
+}
+
+message CatalogRelation {
+  Key key = 1;
+  Key parent_key = 2;
+  Key provider_item_key = 3;
+  Term kind = 4;
+  repeated sint64 order = 5;
+  repeated Attribute attributes = 6;
+}
+
+message CatalogBatch {
+  uint64 sequence = 1;
+  repeated ProviderItem item_upserts = 2;
+  repeated Key item_deletes = 3;
+  repeated CatalogRelation relation_upserts = 4;
+  repeated Key relation_deletes = 5;
+  repeated CoordinateBinding coordinate_binding_upserts = 6;
+  repeated CoordinateBindingKey coordinate_binding_deletes = 7;
+}
+
+message ReadCompleted {
+  bytes next_cursor = 1;
+  bytes evidence_revision = 2;
+  sint64 observed_time_milliseconds = 3;
+}
+
+message ReadFailed {
+  AdapterError error = 1;
+}
+
+message ReadCancelled {}
+
+message ReadCatalogResponse {
+  oneof event {
+    ReadHeartbeat heartbeat = 1;
+    CatalogBatch batch = 2;
+    ReadCompleted completed = 3;
+    ReadFailed failed = 4;
+    ReadCancelled cancelled = 5;
+  }
+}
+
+message SubjectReference {
+  oneof subject {
+    Key provider_item_key = 1;
+    Key catalog_relation_key = 2;
+  }
+}
+
+enum CoordinateBacking {
+  COORDINATE_BACKING_UNSPECIFIED = 0;
+  COORDINATE_BACKING_MATERIALIZED = 1;
+  COORDINATE_BACKING_VIRTUAL = 2;
+  COORDINATE_BACKING_AGGREGATE = 3;
+}
+
+message CoordinateBindingKey {
+  PortableEndpoint endpoint = 1;
+  SubjectReference subject = 2;
+}
+
+message CoordinateBinding {
+  PortableEndpoint endpoint = 1;
+  SubjectReference subject = 2;
+  CoordinateBacking backing = 3;
+  bytes evidence_revision = 4;
+}
+
+message StateField {
+  Term field = 1;
+  Term unit = 2;
+}
+
+message StateDeletion {}
+
+message StateObservation {
+  SubjectReference subject = 1;
+  StateField field = 2;
+  oneof observation {
+    Value value = 3;
+    StateDeletion deletion = 4;
+  }
+  bytes provider_revision = 5;
+  sint64 observed_time_milliseconds = 6;
+}
+
+message StateBatch {
+  uint64 sequence = 1;
+  repeated StateObservation observations = 2;
+}
+
+message ReadStateResponse {
+  oneof event {
+    ReadHeartbeat heartbeat = 1;
+    StateBatch batch = 2;
+    ReadCompleted completed = 3;
+    ReadFailed failed = 4;
+    ReadCancelled cancelled = 5;
+  }
+}
+
+enum SourceMembership {
+  SOURCE_MEMBERSHIP_UNSPECIFIED = 0;
+  SOURCE_MEMBERSHIP_PRESENT = 1;
+  SOURCE_MEMBERSHIP_ABSENT = 2;
+  SOURCE_MEMBERSHIP_UNKNOWN = 3;
+}
+
+enum StatePresence {
+  STATE_PRESENCE_UNSPECIFIED = 0;
+  STATE_PRESENCE_PRESENT = 1;
+  STATE_PRESENCE_DELETED = 2;
+  STATE_PRESENCE_ABSENT = 3;
+  STATE_PRESENCE_UNKNOWN = 4;
+  STATE_PRESENCE_STALE = 5;
+}
+
+message ReadTargetedStateRequest {
+  bytes operation_id = 1;
+  Key source_key = 2;
+  SubjectReference subject = 3;
+  repeated StateField fields = 4;
+  uint64 maximum_response_bytes = 5;
+  bytes reconciliation_idempotency_key = 6;
+}
+
+message TargetedStateFieldObservation {
+  StateField field = 1;
+  StatePresence presence = 2;
+  Value value = 3;
+}
+
+message TargetedStateWriteCausation {
+  bytes idempotency_key = 1;
+  bytes receipt = 2;
+  bytes provider_revision = 3;
+}
+
+message TargetedStateReadMatched {
+  SourceMembership membership = 1;
+  repeated TargetedStateFieldObservation fields = 2;
+  bytes provider_revision = 3;
+  sint64 observed_time_milliseconds = 4;
+  optional sint64 expires_time_milliseconds = 5;
+  bytes precondition = 6;
+  TargetedStateWriteCausation write_causation = 7;
+}
+
+message TargetedStateReadUnsupported {}
+
+message TargetedStateReadNotFound {}
+
+message TargetedStateReadAmbiguous {
+  repeated SubjectReference candidates = 1;
+}
+
+message TargetedStateReadIndeterminate {
+  AdapterError error = 1;
+}
+
+message ReadTargetedStateResponse {
+  oneof outcome {
+    TargetedStateReadMatched matched = 1;
+    TargetedStateReadUnsupported unsupported = 2;
+    TargetedStateReadNotFound not_found = 3;
+    TargetedStateReadAmbiguous ambiguous = 4;
+    TargetedStateReadIndeterminate indeterminate = 5;
+  }
+}
+
+message TargetedStateClear {}
+
+message TargetedStateWriteIntent {
+  StateField field = 1;
+  oneof operation {
+    Value set = 2;
+    TargetedStateClear clear = 3;
+  }
+}
+
+message WriteTargetedStateRequest {
+  bytes operation_id = 1;
+  Key source_key = 2;
+  SubjectReference subject = 3;
+  bytes idempotency_key = 4;
+  SourceMembership expected_membership = 5;
+  bytes precondition = 6;
+  bool allow_create_membership = 7;
+  repeated TargetedStateWriteIntent intents = 8;
+  uint64 maximum_receipt_bytes = 9;
+  uint64 maximum_response_bytes = 10;
+}
+
+enum TargetedStateWriteStatus {
+  TARGETED_STATE_WRITE_STATUS_UNSPECIFIED = 0;
+  TARGETED_STATE_WRITE_STATUS_APPLIED = 1;
+  TARGETED_STATE_WRITE_STATUS_NO_OP = 2;
+  TARGETED_STATE_WRITE_STATUS_REJECTED = 3;
+  TARGETED_STATE_WRITE_STATUS_FAILED = 4;
+  TARGETED_STATE_WRITE_STATUS_INDETERMINATE = 5;
+}
+
+enum TargetedStateWriteCertainty {
+  TARGETED_STATE_WRITE_CERTAINTY_UNSPECIFIED = 0;
+  TARGETED_STATE_WRITE_CERTAINTY_CONFIRMED_APPLIED = 1;
+  TARGETED_STATE_WRITE_CERTAINTY_CONFIRMED_NOT_APPLIED = 2;
+  TARGETED_STATE_WRITE_CERTAINTY_UNKNOWN = 3;
+}
+
+enum TargetedStateWriteRetryDisposition {
+  TARGETED_STATE_WRITE_RETRY_DISPOSITION_UNSPECIFIED = 0;
+  TARGETED_STATE_WRITE_RETRY_DISPOSITION_NOT_RETRYABLE = 1;
+  TARGETED_STATE_WRITE_RETRY_DISPOSITION_SAFE_SAME_KEY = 2;
+  TARGETED_STATE_WRITE_RETRY_DISPOSITION_RECONCILE_FIRST = 3;
+}
+
+enum TargetedStateMembershipEffect {
+  TARGETED_STATE_MEMBERSHIP_EFFECT_UNSPECIFIED = 0;
+  TARGETED_STATE_MEMBERSHIP_EFFECT_UNCHANGED = 1;
+  TARGETED_STATE_MEMBERSHIP_EFFECT_CREATED = 2;
+  TARGETED_STATE_MEMBERSHIP_EFFECT_UNKNOWN = 3;
+}
+
+enum TargetedStateFieldEffectKind {
+  TARGETED_STATE_FIELD_EFFECT_KIND_UNSPECIFIED = 0;
+  TARGETED_STATE_FIELD_EFFECT_KIND_SET = 1;
+  TARGETED_STATE_FIELD_EFFECT_KIND_CLEARED = 2;
+  TARGETED_STATE_FIELD_EFFECT_KIND_UNCHANGED = 3;
+  TARGETED_STATE_FIELD_EFFECT_KIND_UNKNOWN = 4;
+}
+
+message TargetedStateWriteFieldEffect {
+  StateField field = 1;
+  TargetedStateFieldEffectKind effect = 2;
+  Value value = 3;
+}
+
+message WriteTargetedStateResponse {
+  TargetedStateWriteStatus status = 1;
+  TargetedStateWriteCertainty certainty = 2;
+  TargetedStateWriteRetryDisposition retry_disposition = 3;
+  TargetedStateMembershipEffect membership_effect = 4;
+  repeated TargetedStateWriteFieldEffect field_effects = 5;
+  bytes provider_revision = 6;
+  bytes successor_precondition = 7;
+  bytes receipt = 8;
+  AdapterError error = 9;
+}
+
+message LookupEvidence {
+  bytes adapter_revision = 1;
+  sint64 observed_time_milliseconds = 2;
+  optional sint64 expires_time_milliseconds = 3;
+  repeated PortableReference matched_references = 4;
+}
+
+message LookupCandidate {
+  ProviderItem provider_item = 1;
+  LookupEvidence evidence = 2;
+}
+
+message LookupMatched {
+  LookupCandidate candidate = 1;
+}
+
+message LookupNotFound {}
+
+message LookupAmbiguous {
+  repeated LookupCandidate candidates = 1;
+}
+
+message LookupUnsupported {}
+
+message PortableReferenceLookupResult {
+  PortableReference requested = 1;
+  oneof outcome {
+    LookupMatched matched = 2;
+    LookupNotFound not_found = 3;
+    LookupAmbiguous ambiguous = 4;
+    LookupUnsupported unsupported = 5;
+  }
+}
+
+message LookupPortableReferencesRequest {
+  bytes operation_id = 1;
+  repeated PortableReference references = 2;
+}
+
+message LookupPortableReferencesResult {
+  repeated PortableReferenceLookupResult results = 1;
+}
+
+message LookupPortableReferencesResponse {
+  oneof outcome {
+    LookupPortableReferencesResult result = 1;
+    AdapterError error = 2;
+  }
+}
+
+message EndpointLookupCandidate {
+  ProviderItem provider_item = 1;
+  CoordinateBinding binding = 2;
+  LookupEvidence evidence = 3;
+}
+
+message EndpointLookupMatched {
+  EndpointLookupCandidate candidate = 1;
+}
+
+message EndpointLookupAmbiguous {
+  repeated EndpointLookupCandidate candidates = 1;
+}
+
+message PortableEndpointResolution {
+  PortableEndpoint requested = 1;
+  oneof outcome {
+    EndpointLookupMatched matched = 2;
+    LookupNotFound not_found = 3;
+    EndpointLookupAmbiguous ambiguous = 4;
+    LookupUnsupported unsupported = 5;
+  }
+}
+
+message ResolvePortableEndpointsRequest {
+  bytes operation_id = 1;
+  repeated PortableEndpoint endpoints = 2;
+  uint64 maximum_response_bytes = 3;
+}
+
+message ResolvePortableEndpointsResult {
+  repeated PortableEndpointResolution results = 1;
+}
+
+message ResolvePortableEndpointsResponse {
+  oneof outcome {
+    ResolvePortableEndpointsResult result = 1;
+    AdapterError error = 2;
+  }
+}
+
+message ContentHash {
+  Term algorithm = 1;
+  bytes digest = 2;
+}
+
+message ReadAssetRequest {
+  bytes operation_id = 1;
+  Key source_key = 2;
+  Key provider_item_key = 3;
+  Key asset_key = 4;
+  uint64 maximum_bytes = 5;
+}
+
+message ReadAssetResult {
+  bytes content = 1;
+  string content_type = 2;
+  uint64 full_length = 3;
+  ContentHash hash = 4;
+  string cache_control = 5;
+}
+
+message ReadAssetResponse {
+  oneof outcome {
+    ReadAssetResult result = 1;
+    AdapterError error = 2;
+  }
+}
+
+message CancelOperationRequest {
+  bytes operation_id = 1;
+}
+
+message CancelOperationResult {}
+
+message CancelOperationResponse {
+  oneof outcome {
+    CancelOperationResult result = 1;
+    AdapterError error = 2;
+  }
+}
+
+message ShutdownRequest {
+  google.protobuf.Duration grace_period = 1;
+}
+
+message ShutdownResponse {}

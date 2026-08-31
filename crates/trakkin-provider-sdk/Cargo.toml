@@ -1,0 +1,25 @@
+[package]
+description = "Protocol SDK for Trakkin providers"
+edition = "2024"
+license = "Apache-2.0"
+name = "trakkin-provider-sdk"
+repository = "https://github.com/trakkin/trakkin-contracts"
+rust-version = "1.97.1"
+version = "0.0.0"
+
+[dependencies]
+prost = "0.14.4"
+prost-types = "0.14.4"
+serde = { version = "1.0.228", features = ["derive"] }
+serde_json = "1.0.151"
+sha2 = "0.10.9"
+thiserror = "2.0.18"
+tokio = { version = "1.52.4", features = ["net"] }
+tokio-stream = { version = "0.1.18", features = ["net"] }
+tonic = "0.14.6"
+tonic-prost = "0.14.6"
+trakkin-mapping = { path = "../trakkin-mapping", version = "0.0.0" }
+
+[build-dependencies]
+protoc-bin-vendored = "3.2.0"
+tonic-prost-build = "0.14.6"
