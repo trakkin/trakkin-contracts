@@ -1,0 +1,95 @@
+{
+  "schema": "fixtures.mapping/v1",
+  "hashes": {
+    "h1": "sha256:1111111111111111111111111111111111111111111111111111111111111111",
+    "h2": "sha256:2222222222222222222222222222222222222222222222222222222222222222",
+    "h3": "sha256:3333333333333333333333333333333333333333333333333333333333333333"
+  },
+  "vectors": [
+    {
+      "id": "LIFECYCLE-CREATE-001",
+      "request": {"schema":"trakkin.mapping/v1","mappings":[["imdb:title/tt0133093","tmdb:movie/603"]]},
+      "expected": {"serverGeneratesMappingId":true,"revision":1,"parents":[],"activated":false},
+      "portableBody": {"schema":"trakkin.mapping/v1","revision":1,"mappings":[["imdb:title/tt0133093","tmdb:movie/603"]]},
+      "covers": ["lifecycle.create", "portability.no-local-identity", "ui.authoring-history-diff"]
+    },
+    {
+      "id": "LIFECYCLE-UPDATE-001",
+      "setup": {"head":"$h1","revision":1},
+      "action": {"baseContentHash":"$h1","replaceMappingsWith":[["imdb:title/tt0133093","tmdb:movie/603"],["example.media:a","example.media:b"]]},
+      "expected": {"revision":2,"parents":["$h1"],"head":"$h2","previousImmutable":true},
+      "covers": ["lifecycle.immutable-update", "lifecycle.parent"]
+    },
+    {
+      "id": "LIFECYCLE-STALE-BASE-001",
+      "setup": {"head":"$h2","revision":2},
+      "action": {"baseContentHash":"$h1"},
+      "expected": {"httpStatus":409,"code":"head_moved","currentHead":"$h2","canonicalRowSetDiff":true,"writes":0},
+      "covers": ["lifecycle.stale-base", "diagnostic.head-moved"]
+    },
+    {
+      "id": "LIFECYCLE-EXACT-DUPLICATE-001",
+      "setup": {"storedContentHash":"$h1"},
+      "action": {"importContentHash":"$h1"},
+      "expected": {"immutableContentReused":true,"newContentRows":0},
+      "covers": ["lifecycle.exact-duplicate"]
+    },
+    {
+      "id": "LIFECYCLE-SEMANTIC-DUPLICATE-001",
+      "setup": {"revision":1,"contentHash":"$h1","semanticFingerprint":"semantic:aaaaaaaa"},
+      "action": {"importRevision":9,"contentHash":"$h2","semanticFingerprint":"semantic:aaaaaaaa"},
+      "expected": {"distinctHistory":true,"rowsEvaluatedOnce":true,"provenanceHashes":["$h1","$h2"]},
+      "covers": ["lifecycle.semantic-duplicate"]
+    },
+    {
+      "id": "LIFECYCLE-IMPORT-001",
+      "action": {"portableBody":{"schema":"trakkin.mapping/v1","revision":7,"mappings":[["imdb:title/tt0133093","tmdb:movie/603"]]},"contentHash":"sha256:3f0d4580ec1ae3568f15786872dc817cdf9553b543a423f53cc4fd7258f531d9","parents":[]},
+      "expected": {"newLocalMappingId":true,"revision":7,"lineageRoot":"sha256:3f0d4580ec1ae3568f15786872dc817cdf9553b543a423f53cc4fd7258f531d9","activated":false,"canonicalRoundTrip":true},
+      "covers": ["lifecycle.import", "portability.server-owned-id"]
+    },
+    {
+      "id": "LIFECYCLE-INCOMPLETE-ANCESTRY-001",
+      "action": {"importRevision":7,"contentHash":"$h2","parents":["$h1"]},
+      "expected": {"accepted":true,"externalParents":[{"hash":"$h1","verified":false}]},
+      "covers": ["lifecycle.incomplete-ancestry"]
+    },
+    {
+      "id": "LIFECYCLE-FORK-001",
+      "setup": {"localHead":"$h3","selectedNonHead":"$h1"},
+      "action": {"editSelectedRevision":true},
+      "expected": {"newLocalMappingId":true,"externalParents":["$h1"],"originalHead":"$h3"},
+      "covers": ["lifecycle.fork"]
+    },
+    {
+      "id": "LIFECYCLE-SELF-PARENT-001",
+      "action": {"contentHash":"$h1","parents":["$h1"]},
+      "expected": {"accepted":false,"code":"lineage_cycle"},
+      "covers": ["lifecycle.self-parent", "diagnostic.lineage-cycle"]
+    },
+    {
+      "id": "LIFECYCLE-MULTI-NODE-CYCLE-001",
+      "action": {"nodes":[{"hash":"$h1","parents":["$h2"]},{"hash":"$h2","parents":["$h3"]},{"hash":"$h3","parents":["$h1"]}]},
+      "expected": {"accepted":false,"code":"lineage_cycle","cycle":["$h1","$h2","$h3","$h1"]},
+      "covers": ["lifecycle.multi-node-cycle", "diagnostic.lineage-cycle"]
+    },
+    {
+      "id": "LIFECYCLE-ACTIVATION-ROLLBACK-RETIREMENT-001",
+      "setup": {"workspace":"workspace.local-a","revisions":["$h1","$h2"]},
+      "actions": [{"activate":"$h2"},{"rollback":"$h1"},{"retire":true}],
+      "expected": {"activationPointers":["$h2","$h1",null],"auditEvents":3,"portableRevisionsMutated":false,"precedenceCreated":false},
+      "covers": ["lifecycle.activation", "lifecycle.rollback", "lifecycle.retirement", "portability.local-activation", "ui.activation-rollback-retirement"]
+    },
+    {
+      "id": "PACKAGE-MANIFEST-VALID-001",
+      "action": {"documentFixtures":[{"path":"mappings/signal.json","portableBody":{"schema":"trakkin.mapping/v1","revision":1,"mappings":[["example.media:double-length[episode:1..*2]","example.media:weekly[episode:1..]"],["imdb:title/tt0133093","tmdb:movie/603"]]},"expectedHash":"sha256:3c292a44994f0bd715e8629e672db7e90d830a0c348bde69154e626cea4edfac"}],"manifest":{"schema":"trakkin.mapping-package/v1","documents":[{"path":"mappings/signal.json","hash":"sha256:3c292a44994f0bd715e8629e672db7e90d830a0c348bde69154e626cea4edfac"}],"roots":["$h1"],"parents":{"sha256:3c292a44994f0bd715e8629e672db7e90d830a0c348bde69154e626cea4edfac":["$h1"]},"licenseExpression":"MIT","attribution":[{"name":"Example Mapping Authors"}],"signatures":[{"kind":"sigstore","digest":"sha256:3c292a44994f0bd715e8629e672db7e90d830a0c348bde69154e626cea4edfac"}],"forge":{"commit":"0123456789abcdef"},"requires":{"mappingSchema":"trakkin.mapping/v1","resolver":">=1.0 <2.0","coordinateRegistryDigest":"sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"}}},
+      "expected": {"accepted":true,"changesSemanticHash":false,"verifiedDocumentHashes":["sha256:3c292a44994f0bd715e8629e672db7e90d830a0c348bde69154e626cea4edfac"]},
+      "covers": ["package.license", "package.attribution", "package.compatibility", "package.provenance", "package.signature"]
+    },
+    {
+      "id": "PACKAGE-COMPATIBILITY-REJECT-001",
+      "action": {"requires":{"mappingSchema":"trakkin.mapping/v2","resolver":">=2.0","coordinateRegistryDigest":"sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"}},
+      "expected": {"accepted":false,"code":"package_incompatible","reasons":["mapping_schema","resolver","coordinate_registry"]},
+      "covers": ["package.compatibility", "diagnostic.package-incompatible"]
+    }
+  ]
+}

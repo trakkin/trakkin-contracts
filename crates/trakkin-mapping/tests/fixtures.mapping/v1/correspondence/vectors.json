@@ -1,0 +1,112 @@
+{
+  "schema": "fixtures.mapping/v1",
+  "documentDefaults": {"schema":"trakkin.mapping/v1","revision":1},
+  "vectors": [
+    {
+      "id": "GRAPH-ONE-TO-ONE-001",
+      "mappings": [["imdb:title/tt0133093","tmdb:movie/603"]],
+      "request": {"mode":"direct","references":["imdb:title/tt0133093"]},
+      "expected": {"completeness":"complete","cardinality":"1:1","correspondences":1,"proof":{"kind":"direct","parentProofs":[],"transform":{"numerator":1,"denominator":1}}},
+      "covers": ["graph.1:1", "proof.direct", "diagnostic.complete"]
+    },
+    {
+      "id": "GRAPH-ONE-TO-MANY-SPLIT-001",
+      "mappings": [["example.media:original[episode:1..6]","example.media:part-a[episode:1..6]"],["example.media:original[episode:7..12]","example.media:part-b[episode:1..6]"]],
+      "request": {"mode":"direct","references":["example.media:original"],"window":"episode:1..12"},
+      "expected": {"completeness":"complete","cardinality":"1:N","correspondences":2,"segments":["1..6","7..12"]},
+      "covers": ["graph.1:N", "graph.split", "selector.finite"]
+    },
+    {
+      "id": "GRAPH-MANY-TO-ONE-MERGE-001",
+      "mappings": [["example.media:part-a[episode:1..6]","example.media:merged[episode:1..6]"],["example.media:part-b[episode:1..6]","example.media:merged[episode:7..12]"]],
+      "request": {"mode":"direct","references":["example.media:part-a","example.media:part-b"]},
+      "expected": {"completeness":"complete","cardinality":"N:1","correspondences":2,"segments":["1..6","7..12"]},
+      "covers": ["graph.N:1", "graph.merge"]
+    },
+    {
+      "id": "GRAPH-MANY-TO-MANY-001",
+      "mappings": [["example.media:left-a[episode:1..6]","example.media:left-b[episode:1..6]","example.media:right-a[episode:1..6]"],["example.media:left-a[episode:7..12]","example.media:left-b[episode:7..12]","example.media:right-b[episode:1..6]"]],
+      "request": {"mode":"direct","references":["example.media:left-a","example.media:left-b","example.media:right-a","example.media:right-b"]},
+      "expected": {"completeness":"complete","cardinality":"N:M","projectRequestedPairsOnly":true,"authoredRows":2},
+      "covers": ["graph.N:M", "graph.multi-way-row"]
+    },
+    {
+      "id": "GRAPH-FINITE-RATIO-001",
+      "mappings": [["example.media:original[episode:1..24]","example.media:condensed[episode:1..12]"]],
+      "expected": {"completeness":"complete","transform":{"numerator":2,"denominator":1},"roundingApplied":false},
+      "covers": ["graph.finite-ratio", "proof.exact-rational"]
+    },
+    {
+      "id": "GRAPH-UNBOUNDED-FACTOR-001",
+      "mappings": [["example.media:weekly[episode:1..]","example.media:double-length[episode:1..*2]"]],
+      "request": {"window":"episode:1..100"},
+      "expected": {"completeness":"complete","symbolicFactor":2,"windowRequired":true},
+      "covers": ["graph.unbounded", "graph.relative-factor"]
+    },
+    {
+      "id": "GRAPH-DURATION-001",
+      "mappings": [["example.audio:abridged[time:PT0S..PT1H]","example.audio:full[time:PT0S..PT2H]"]],
+      "expected": {"completeness":"complete","interval":"half-open","transform":{"numerator":1,"denominator":2}},
+      "covers": ["graph.duration"]
+    },
+    {
+      "id": "GRAPH-COMPOUND-001",
+      "mappings": [["example.music:album[disc:2/track:1..5]","example.music:release[disc:3/track:7..11]"]],
+      "expected": {"completeness":"complete","tupleOrderPreserved":true,"hierarchyInferred":false},
+      "covers": ["graph.compound"]
+    },
+    {
+      "id": "GRAPH-GAPS-REORDERING-001",
+      "mappings": [["example.media:broadcast[episode:1..3,7,5]","example.media:archive[episode:10..14]"]],
+      "expected": {"completeness":"complete","orderedPositions":[1,2,3,7,5],"inferredGapCoverage":false},
+      "covers": ["graph.gaps", "graph.reordering"]
+    },
+    {
+      "id": "GRAPH-MATERIALIZED-VIRTUAL-AGGREGATE-001",
+      "mappings": [["example.media:children[episode:1..12]","example.media:virtual-cour[episode:1..12]","example.media:title-total[episode:1..12]"]],
+      "evidence": [{"endpoint":0,"backing":"materialized"},{"endpoint":1,"backing":"virtual"},{"endpoint":2,"backing":"aggregate"}],
+      "expected": {"completeness":"complete","syntheticChildrenCreated":false,"backings":["materialized","virtual","aggregate"]},
+      "covers": ["evidence.materialized", "evidence.virtual", "evidence.aggregate"]
+    },
+    {
+      "id": "GRAPH-COMPATIBLE-OVERLAP-001",
+      "mappings": [["example.media:a[episode:1..12]","example.media:b[episode:1..12]"],["example.media:a[episode:7..18]","example.media:b[episode:7..18]"]],
+      "expected": {"completeness":"complete","partitions":["1..6","7..12","13..18"],"overlapSupportCount":{"7..12":2}},
+      "covers": ["graph.overlap", "proof.multiple-support"]
+    },
+    {
+      "id": "GRAPH-CONFLICT-LOCALIZED-001",
+      "mappings": [["example.media:a[episode:1..12]","example.media:b[episode:1..12]"],["example.media:a[episode:7..18]","example.media:b[episode:8..19]"]],
+      "expected": {"completeness":"partial","unaffectedSpans":["1..6","13..18"],"contradictorySpan":"7..12","finding":"contradictory_span","proofPaths":2},
+      "covers": ["graph.contradiction", "graph.partial", "diagnostic.contradictory-span", "proof.contradiction-paths", "ui.ambiguity-preview"]
+    },
+    {
+      "id": "GRAPH-CONSISTENT-CYCLE-001",
+      "mappings": [["example.media:a[episode:1..12]","example.media:b[episode:1..12]"],["example.media:b[episode:1..12]","example.media:c[episode:1..12]"],["example.media:c[episode:1..12]","example.media:a[episode:1..12]"]],
+      "request": {"mode":"transitive","references":["example.media:a","example.media:c"]},
+      "expected": {"completeness":"complete","cycleConsistent":true,"transformIdentity":true},
+      "covers": ["graph.cycle", "graph.transitive", "proof.derived"]
+    },
+    {
+      "id": "GRAPH-CONTRADICTORY-CYCLE-001",
+      "mappings": [["example.media:a[episode:1..12]","example.media:b[episode:1..12]"],["example.media:b[episode:1..12]","example.media:c[episode:1..12]"],["example.media:c[episode:1..12]","example.media:a[episode:1..24]"]],
+      "request": {"mode":"transitive","references":["example.media:a","example.media:c"]},
+      "expected": {"completeness":"partial","finding":"contradictory_cycle","proofPaths":2,"winnerSelected":false},
+      "covers": ["graph.cycle", "graph.contradiction", "diagnostic.contradictory-cycle", "proof.contradiction-paths"]
+    },
+    {
+      "id": "GRAPH-DIRECT-VERSUS-TRANSITIVE-001",
+      "mappings": [["example.media:a","example.media:b"],["example.media:b","example.media:c"]],
+      "requests": [{"mode":"direct","expectedTargets":["example.media:b"]},{"mode":"transitive","expectedTargets":["example.media:b","example.media:c"]}],
+      "expected": {"authoredAndDerivedDistinct":true},
+      "covers": ["graph.direct", "graph.transitive", "proof.direct", "proof.derived"]
+    },
+    {
+      "id": "GRAPH-AMBIGUOUS-NO-TRAVERSAL-001",
+      "mappings": [["example.media:a","example.media:b"],["example.media:b","example.media:c"]],
+      "evidence": {"endpoint":"example.media:b","outcome":"ambiguous","candidates":["provider:b1","provider:b2"]},
+      "expected": {"completeness":"partial","finding":"ambiguous","traversedThroughAmbiguity":false,"candidateCrossProduct":false},
+      "covers": ["graph.ambiguous-stop", "diagnostic.ambiguous"]
+    }
+  ]
+}

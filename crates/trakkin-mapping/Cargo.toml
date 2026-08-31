@@ -1,0 +1,21 @@
+[package]
+description = "Portable mapping documents and package models for Trakkin"
+edition = "2024"
+license = "Apache-2.0"
+name = "trakkin-mapping"
+repository = "https://github.com/trakkin/trakkin-contracts"
+rust-version = "1.97.1"
+version = "0.0.0"
+
+[features]
+default = []
+fixtures = []
+
+[dependencies]
+semver = "1.0.27"
+serde = { version = "1.0.228", features = ["derive"] }
+serde_json = "1.0.151"
+serde_yaml = "0.9.34"
+sha2 = "0.10.9"
+spdx = "0.13.4"
+thiserror = "2.0.18"

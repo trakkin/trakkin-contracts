@@ -1,0 +1,5 @@
+schema: trakkin.mapping/v1
+revision: 1
+mappings:
+  - ["example.media:double-length[episode:1..*2]", "example.media:weekly[episode:1..]"]
+  - ["imdb:title/tt0133093", "tmdb:movie/603"]
