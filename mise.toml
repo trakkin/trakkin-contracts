@@ -1,0 +1,57 @@
+[settings]
+lockfile = true
+minimum_release_age = "3d"
+
+[tools]
+"cargo:cargo-edit" = { version = "0.13.13", default-features = false, features = "upgrade" }
+"github:kjanat/actionlint" = "1.13.0"
+"npm:actions-up" = "1.18.0"
+buf = "1.72.0"
+node = "26.7.0"
+rust = { version = "1.97.1", components = "rust-analyzer,rust-src,rustfmt,clippy" }
+
+[tasks.setup]
+description = "Fetch locked Rust dependencies"
+run = "cargo fetch --locked"
+
+[tasks.build]
+description = "Build every contract crate"
+run = "cargo build --locked --workspace --all-features"
+
+[tasks.format]
+description = "Format Rust and Protobuf sources"
+run = ["cargo fmt --all", "buf format -w"]
+
+[tasks.lint]
+description = "Check formatting, lints, and protocol style"
+run = [
+  "actionlint",
+  "cargo fmt --all -- --check",
+  "cargo clippy --locked --workspace --all-targets --all-features -- -D warnings",
+  "buf lint",
+  "buf format --diff --exit-code",
+]
+
+[tasks.test]
+description = "Run every contract test"
+run = "cargo test --locked --workspace --all-features"
+
+[tasks.update]
+description = "Update tools and dependencies"
+run = [
+  { task = "update:tools" },
+  { tasks = [
+    "update:actions",
+    "update:backend",
+  ] },
+]
+
+[tasks."update:actions"]
+description = "Update and SHA-pin GitHub Actions dependencies"
+run = "actions-up --yes"
+
+[tasks."update:backend"]
+run = "cargo upgrade --incompatible allow --pinned allow"
+
+[tasks."update:tools"]
+run = "mise upgrade --bump"

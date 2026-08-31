@@ -1,0 +1,6 @@
+version: v2
+modules:
+  - path: crates/trakkin-provider-sdk/proto
+lint:
+  use:
+    - STANDARD
