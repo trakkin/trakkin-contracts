@@ -3,92 +3,210 @@
   "vectors": [
     {
       "id": "EVIDENCE-PUBLISHED-MATCH-001",
-      "input": {"reference":"example.media:published","catalogMembership":true,"publicationId":"catalog-r1","coordinatePublicationId":"coordinates-r1"},
-      "expected": {"outcome":"matched","source":"published","lookupCalls":0,"proofPins":["catalogPublication","coordinatePublication"]},
+      "input": {
+        "reference": "example.media://published",
+        "catalogMembership": true,
+        "publicationId": "catalog-r1",
+        "coordinatePublicationId": "coordinates-r1"
+      },
+      "expected": {
+        "outcome": "matched",
+        "source": "published",
+        "lookupCalls": 0,
+        "proofPins": ["catalogPublication", "coordinatePublication"]
+      },
       "covers": ["evidence.published-match", "proof.catalog-pin"]
     },
     {
       "id": "EVIDENCE-EMPTY-MEMBERSHIP-LOOKUP-001",
-      "input": {"endpoint":"example.media:quiet-signal[segment:1..12]","catalogMembership":false,"protocol":"1.0","endpointLookup":true,"lookupOutcome":"matched","backing":"aggregate"},
-      "expected": {"outcome":"matched","membership":"absent","catalogRowsCreated":0,"lookupRowsPersisted":0},
-      "covers": ["evidence.empty-membership", "evidence.endpoint-lookup", "persistence.no-lookup-results", "persistence.no-membership-mutation"]
+      "input": {
+        "endpoint": "example.media://quiet-signal[segment:1..12]",
+        "catalogMembership": false,
+        "protocol": "1.0",
+        "endpointLookup": true,
+        "lookupOutcome": "matched",
+        "backing": "aggregate"
+      },
+      "expected": { "outcome": "matched", "membership": "absent", "catalogRowsCreated": 0, "lookupRowsPersisted": 0 },
+      "covers": [
+        "evidence.empty-membership",
+        "evidence.endpoint-lookup",
+        "persistence.no-lookup-results",
+        "persistence.no-membership-mutation"
+      ]
     },
     {
       "id": "EVIDENCE-BARE-REFERENCE-LOOKUP-001",
-      "input": {"endpoint":"example.media:quiet-signal","protocol":"1.0","portableReferenceLookup":true},
-      "expected": {"operation":"LookupPortableReferences","outcome":"matched","selectorStripped":false},
+      "input": { "endpoint": "example.media://quiet-signal", "protocol": "1.0", "portableReferenceLookup": true },
+      "expected": { "operation": "LookupPortableReferences", "outcome": "matched", "selectorStripped": false },
       "covers": ["evidence.reference-lookup"]
     },
     {
       "id": "EVIDENCE-ENDPOINT-CAPABILITY-UNSUPPORTED-001",
-      "input": {"endpoint":"example.media:quiet-signal[episode:1..12]","protocol":"1.0","endpointLookup":false},
-      "expected": {"operation":null,"outcome":"unsupported","selectorStripped":false,"bareMatchSubstituted":false},
+      "input": {
+        "endpoint": "example.media://quiet-signal[episode:1..12]",
+        "protocol": "1.0",
+        "endpointLookup": false
+      },
+      "expected": {
+        "operation": null,
+        "outcome": "unsupported",
+        "selectorStripped": false,
+        "bareMatchSubstituted": false
+      },
       "covers": ["evidence.endpoint-capability-unsupported", "diagnostic.unsupported"]
     },
     {
       "id": "EVIDENCE-NOT-FOUND-001",
-      "input": {"endpoint":"example.media:missing","protocol":"1.0","lookupOutcome":"not_found"},
-      "expected": {"completeness":"partial","finding":"not_found","catalogAbsenceUsedAsNotFound":false},
+      "input": { "endpoint": "example.media://missing", "protocol": "1.0", "lookupOutcome": "not_found" },
+      "expected": { "completeness": "partial", "finding": "not_found", "catalogAbsenceUsedAsNotFound": false },
       "covers": ["evidence.not-found", "diagnostic.not-found"]
     },
     {
       "id": "EVIDENCE-UNRESOLVED-001",
-      "input": {"endpoint":"example.media:unresolved","publishedCandidates":[],"lookupCapability":false},
-      "expected": {"completeness":"partial","finding":"unresolved","notFound":false,"unsupported":false},
+      "input": { "endpoint": "example.media://unresolved", "publishedCandidates": [], "lookupCapability": false },
+      "expected": { "completeness": "partial", "finding": "unresolved", "notFound": false, "unsupported": false },
       "covers": ["evidence.unresolved", "diagnostic.unresolved"]
     },
     {
       "id": "EVIDENCE-AMBIGUOUS-001",
-      "input": {"endpoint":"example.media:broad-cour","protocol":"1.0","lookupOutcome":"ambiguous","candidates":[{"providerItemKey":"cour-a","evidenceRevision":"lookup-r1"},{"providerItemKey":"cour-b","evidenceRevision":"lookup-r1"}]},
-      "expected": {"completeness":"partial","finding":"ambiguous","selectedCandidate":null,"candidateCount":2},
+      "input": {
+        "endpoint": "example.media://broad-cour",
+        "protocol": "1.0",
+        "lookupOutcome": "ambiguous",
+        "candidates": [
+          { "providerItemKey": "cour-a", "evidenceRevision": "lookup-r1" },
+          { "providerItemKey": "cour-b", "evidenceRevision": "lookup-r1" }
+        ]
+      },
+      "expected": { "completeness": "partial", "finding": "ambiguous", "selectedCandidate": null, "candidateCount": 2 },
       "covers": ["evidence.ambiguous", "diagnostic.ambiguous", "proof.candidates"]
     },
     {
       "id": "EVIDENCE-EXPIRED-001",
-      "input": {"endpoint":"example.media:item[episode:1..12]","observedAt":"2030-01-02T03:04:05Z","expiresAt":"2030-01-02T03:05:05Z","resolutionTime":"2030-01-02T03:05:06Z"},
-      "expected": {"completeness":"partial","finding":"expired_evidence","lookupRowsPersisted":0},
+      "input": {
+        "endpoint": "example.media://item[episode:1..12]",
+        "observedAt": "2030-01-02T03:04:05Z",
+        "expiresAt": "2030-01-02T03:05:05Z",
+        "resolutionTime": "2030-01-02T03:05:06Z"
+      },
+      "expected": { "completeness": "partial", "finding": "expired_evidence", "lookupRowsPersisted": 0 },
       "covers": ["evidence.expired", "diagnostic.expired"]
     },
     {
       "id": "EVIDENCE-MISSING-COORDINATE-001",
-      "input": {"endpoint":"example.media:item[episode:1..12]","referenceMatched":true,"coordinateBindings":[]},
-      "expected": {"completeness":"partial","finding":"missing_coordinate_evidence","hierarchyInferred":false},
+      "input": {
+        "endpoint": "example.media://item[episode:1..12]",
+        "referenceMatched": true,
+        "coordinateBindings": []
+      },
+      "expected": { "completeness": "partial", "finding": "missing_coordinate_evidence", "hierarchyInferred": false },
       "covers": ["evidence.missing-coordinate", "diagnostic.missing-coordinate"]
     },
     {
       "id": "EVIDENCE-MALFORMED-001",
-      "input": {"endpoint":"example.media:item[episode:1..12]","lookupOutcome":"malformed","fault":"binding-outside-requested-coverage"},
-      "expected": {"completeness":"indeterminate","finding":"malformed_provider_evidence","adapterRetired":true,"absenceInferred":false},
+      "input": {
+        "endpoint": "example.media://item[episode:1..12]",
+        "lookupOutcome": "malformed",
+        "fault": "binding-outside-requested-coverage"
+      },
+      "expected": {
+        "completeness": "indeterminate",
+        "finding": "malformed_provider_evidence",
+        "adapterRetired": true,
+        "absenceInferred": false
+      },
       "covers": ["evidence.malformed", "diagnostic.indeterminate"]
     },
     {
       "id": "EVIDENCE-TRANSPORT-INDETERMINATE-001",
-      "input": {"endpoint":"example.media:item","lookupOutcome":"transport_failure"},
-      "expected": {"completeness":"indeterminate","finding":"provider_unavailable","notFound":false},
+      "input": { "endpoint": "example.media://item", "lookupOutcome": "transport_failure" },
+      "expected": { "completeness": "indeterminate", "finding": "provider_unavailable", "notFound": false },
       "covers": ["evidence.transport-failure", "diagnostic.indeterminate"]
     },
     {
       "id": "EVIDENCE-STALE-PINS-001",
-      "baselineProof": {"pins":{"activationGeneration":7,"attachmentSetDigest":"sha256:1111111111111111111111111111111111111111111111111111111111111111","catalogPublication":"catalog-r1","coordinatePublication":"coordinates-r1","capabilityRevision":"capabilities-r1","processInstance":"process-a","lookupEvidenceRevision":"lookup-r1","lookupExpiry":"2030-01-02T03:05:05Z"}},
-      "parameterizedMutations": ["activationGeneration","attachmentSetDigest","catalogPublication","coordinatePublication","capabilityRevision","processInstance","lookupEvidenceRevision","lookupExpiry"],
-      "expected": {"completeness":"stale","mixedSnapshotReturned":false,"proofReturned":false,"lookupRowsPersisted":0,"storedResolvedEdges":0},
+      "baselineProof": {
+        "pins": {
+          "activationGeneration": 7,
+          "attachmentSetDigest": "sha256:1111111111111111111111111111111111111111111111111111111111111111",
+          "catalogPublication": "catalog-r1",
+          "coordinatePublication": "coordinates-r1",
+          "capabilityRevision": "capabilities-r1",
+          "processInstance": "process-a",
+          "lookupEvidenceRevision": "lookup-r1",
+          "lookupExpiry": "2030-01-02T03:05:05Z"
+        }
+      },
+      "parameterizedMutations": [
+        "activationGeneration",
+        "attachmentSetDigest",
+        "catalogPublication",
+        "coordinatePublication",
+        "capabilityRevision",
+        "processInstance",
+        "lookupEvidenceRevision",
+        "lookupExpiry"
+      ],
+      "expected": {
+        "completeness": "stale",
+        "mixedSnapshotReturned": false,
+        "proofReturned": false,
+        "lookupRowsPersisted": 0,
+        "storedResolvedEdges": 0
+      },
       "covers": ["evidence.stale", "diagnostic.stale", "proof.mutable-pins"]
     },
     {
       "id": "EVIDENCE-LOOKUP-BATCH-DEDUPE-001",
-      "input": {"unresolvedEndpoints":["example.media:a","example.media:a","example.media:b"],"connection":"connection.local-a","advertisedBatchSize":2},
-      "expected": {"lookupReferences":2,"lookupCalls":1,"dedupeScope":"connection"},
+      "input": {
+        "unresolvedEndpoints": ["example.media://a", "example.media://a", "example.media://b"],
+        "connection": "connection.local-a",
+        "advertisedBatchSize": 2
+      },
+      "expected": { "lookupReferences": 2, "lookupCalls": 1, "dedupeScope": "connection" },
       "covers": ["evidence.lookup-deduplication", "budget.lookup-references", "budget.lookup-calls"]
     }
   ],
   "publicationChange": {
     "id": "EVIDENCE-TWO-PUBLICATIONS-001",
-    "mapping": [["example.media:original[episode:1..12]","example.media:receiver[episode:1..12]"]],
+    "mapping": [["example.media://original[episode:1..12]", "example.media://receiver[episode:1..12]"]],
     "publications": [
-      {"catalogPublication":"catalog-r1","coordinatePublication":"coordinates-r1","receiverBinding":{"providerItemKey":"receiver-v1","coverage":"episode:1..12","backing":"virtual"}},
-      {"catalogPublication":"catalog-r2","coordinatePublication":"coordinates-r2","receiverBinding":{"providerItemKey":"receiver-v2","coverage":"episode:1..12","backing":"aggregate"}}
+      {
+        "catalogPublication": "catalog-r1",
+        "coordinatePublication": "coordinates-r1",
+        "receiverBinding": { "providerItemKey": "receiver-v1", "coverage": "episode:1..12", "backing": "virtual" }
+      },
+      {
+        "catalogPublication": "catalog-r2",
+        "coordinatePublication": "coordinates-r2",
+        "receiverBinding": { "providerItemKey": "receiver-v2", "coverage": "episode:1..12", "backing": "aggregate" }
+      }
     ],
-    "expected": {"resolutionOutputs":[{"providerItemKey":"receiver-v1","backing":"virtual","pins":{"catalogPublication":"catalog-r1","coordinatePublication":"coordinates-r1"}},{"providerItemKey":"receiver-v2","backing":"aggregate","pins":{"catalogPublication":"catalog-r2","coordinatePublication":"coordinates-r2"}}],"resolutionOutputsDiffer":true,"firstProviderItemKey":"receiver-v1","secondProviderItemKey":"receiver-v2","backgroundCanonicalUpdate":false,"storedResolvedEdges":0},
-    "covers": ["evidence.publication-change", "persistence.no-resolved-edge", "persistence.no-canonical-model", "resolution.on-demand"]
+    "expected": {
+      "resolutionOutputs": [
+        {
+          "providerItemKey": "receiver-v1",
+          "backing": "virtual",
+          "pins": { "catalogPublication": "catalog-r1", "coordinatePublication": "coordinates-r1" }
+        },
+        {
+          "providerItemKey": "receiver-v2",
+          "backing": "aggregate",
+          "pins": { "catalogPublication": "catalog-r2", "coordinatePublication": "coordinates-r2" }
+        }
+      ],
+      "resolutionOutputsDiffer": true,
+      "firstProviderItemKey": "receiver-v1",
+      "secondProviderItemKey": "receiver-v2",
+      "backgroundCanonicalUpdate": false,
+      "storedResolvedEdges": 0
+    },
+    "covers": [
+      "evidence.publication-change",
+      "persistence.no-resolved-edge",
+      "persistence.no-canonical-model",
+      "resolution.on-demand"
+    ]
   }
 }

@@ -108,6 +108,8 @@ pub fn portable_reference(
     if reference.value.is_empty() {
         return Err(ValidationError::Empty(field));
     }
+    MappingEndpoint::from_parts(&reference.namespace, &reference.value, None)
+        .map_err(|_| ValidationError::Invalid(field))?;
     Ok(())
 }
 

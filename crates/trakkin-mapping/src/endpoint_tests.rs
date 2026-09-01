@@ -59,7 +59,7 @@ fn production_endpoint_parser_matches_explicit_vectors() {
 #[test]
 fn production_reference_parser_round_trips_every_byte() {
     for byte in u8::MIN..=u8::MAX {
-        let endpoint = PortableEndpoint::parse(&format!("bytes.example:%{byte:02x}"))
+        let endpoint = PortableEndpoint::parse(&format!("bytes.example://%{byte:02x}"))
             .expect("byte endpoint should parse");
         assert_eq!(endpoint.value(), &[byte]);
         let expected =
@@ -68,7 +68,7 @@ fn production_reference_parser_round_trips_every_byte() {
             } else {
                 format!("%{byte:02X}")
             };
-        assert_eq!(endpoint.as_str(), format!("bytes.example:{expected}"));
+        assert_eq!(endpoint.as_str(), format!("bytes.example://{expected}"));
     }
 }
 
@@ -77,15 +77,15 @@ fn production_endpoint_parser_enforces_generated_boundaries() {
     let namespace = dns_name(253);
     let coordinate = dns_name(253);
     let encoded_value = "%00".repeat(1_024);
-    let selection = std::iter::once("100000".to_owned())
+    let selection = std::iter::once("1000".to_owned())
         .chain((100..227).map(|value| value.to_string()))
         .collect::<Vec<_>>()
         .join(",");
-    let accepted = format!("{namespace}:{encoded_value}[{coordinate}:{selection}]");
+    let accepted = format!("{namespace}://{encoded_value}[{coordinate}:{selection}]");
     assert_eq!(accepted.len(), 4_096);
     PortableEndpoint::parse(&accepted).expect("4096-byte endpoint should parse");
 
-    let rejected = accepted.replacen("100000", "1000000", 1);
+    let rejected = accepted.replacen("1000", "10000", 1);
     assert_eq!(rejected.len(), 4_097);
     assert_eq!(
         PortableEndpoint::parse(&rejected)
@@ -94,22 +94,22 @@ fn production_endpoint_parser_enforces_generated_boundaries() {
         "endpoint_too_long"
     );
 
-    PortableEndpoint::parse(&format!("value.example:{}", "x".repeat(1_024)))
+    PortableEndpoint::parse(&format!("value.example://{}", "x".repeat(1_024)))
         .expect("1024-byte value should parse");
     assert_eq!(
-        PortableEndpoint::parse(&format!("value.example:{}", "x".repeat(1_025)))
+        PortableEndpoint::parse(&format!("value.example://{}", "x".repeat(1_025)))
             .expect_err("1025-byte value should fail")
             .code(),
         "reference_value_too_long"
     );
     assert_eq!(
-        PortableEndpoint::parse(&format!("{}.example:item", "a".repeat(64)))
+        PortableEndpoint::parse(&format!("{}.example://item", "a".repeat(64)))
             .expect_err("64-byte namespace label should fail")
             .code(),
         "namespace_too_long"
     );
     assert_eq!(
-        PortableEndpoint::parse(&format!("{}a:item", dns_name(253)))
+        PortableEndpoint::parse(&format!("{}a://item", dns_name(253)))
             .expect_err("254-byte namespace should fail")
             .code(),
         "namespace_too_long"

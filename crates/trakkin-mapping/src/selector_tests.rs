@@ -16,15 +16,18 @@ fn production_selector_parser_enforces_generated_boundaries() {
     let components = (0..16)
         .map(|index| format!("c{index}.example:0"))
         .collect::<Vec<_>>();
-    PortableEndpoint::parse(&format!("selector.example:item[{}]", components.join("/")))
-        .expect("16 selector components should parse");
+    PortableEndpoint::parse(&format!(
+        "selector.example://item[{}]",
+        components.join("/")
+    ))
+    .expect("16 selector components should parse");
 
     let rejected_components = (0..17)
         .map(|index| format!("c{index}.example:0"))
         .collect::<Vec<_>>();
     assert_eq!(
         PortableEndpoint::parse(&format!(
-            "selector.example:item[{}]",
+            "selector.example://item[{}]",
             rejected_components.join("/")
         ))
         .expect_err("17 selector components should fail")
@@ -36,7 +39,7 @@ fn production_selector_parser_enforces_generated_boundaries() {
         .map(|value| value.to_string())
         .collect::<Vec<_>>()
         .join(",");
-    PortableEndpoint::parse(&format!("selector.example:item[episode:{accepted_list}]"))
+    PortableEndpoint::parse(&format!("selector.example://item[episode:{accepted_list}]"))
         .expect("256 list elements should parse");
 
     let rejected_list = (0..257)
@@ -44,16 +47,16 @@ fn production_selector_parser_enforces_generated_boundaries() {
         .collect::<Vec<_>>()
         .join(",");
     assert_eq!(
-        PortableEndpoint::parse(&format!("selector.example:item[episode:{rejected_list}]"))
+        PortableEndpoint::parse(&format!("selector.example://item[episode:{rejected_list}]"))
             .expect_err("257 list elements should fail")
             .code(),
         "list_too_long"
     );
 
-    PortableEndpoint::parse("selector.example:item[episode:0..*999999]")
+    PortableEndpoint::parse("selector.example://item[episode:0..*999999]")
         .expect("maximum relative factor should parse");
     assert_eq!(
-        PortableEndpoint::parse("selector.example:item[episode:0..*1000000]")
+        PortableEndpoint::parse("selector.example://item[episode:0..*1000000]")
             .expect_err("relative factor above the maximum should fail")
             .code(),
         "factor_out_of_range"

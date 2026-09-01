@@ -4,7 +4,7 @@ use serde_json::Value;
 const JSON: &str = include_str!("../tests/fixtures.mapping/v1/canonical/equivalent.json");
 const YAML: &str = include_str!("../tests/fixtures.mapping/v1/canonical/equivalent.yaml");
 const EXPECTED_HASH: &str =
-    "sha256:3c292a44994f0bd715e8629e672db7e90d830a0c348bde69154e626cea4edfac";
+    "sha256:d422dcfd15bb7bdef4f5e0b6a97f5e0ab52004ac28376515fdc3fe4e7b9e7309";
 const VECTORS: &str = include_str!("../tests/fixtures.mapping/v1/canonical/vectors.json");
 
 #[test]
@@ -78,16 +78,16 @@ fn production_document_parser_matches_model_and_syntax_errors() {
 #[test]
 fn production_document_normalizes_rows_and_separates_hashes() {
     let first = MappingDocument::from_json(
-        r#"{"schema":"trakkin.mapping/v1","revision":1,"mappings":[["z.example:item","a.example:item"],["b.example:item","a.example:item"]]}"#,
+        r#"{"schema":"trakkin.mapping/v1","revision":1,"mappings":[["z.example://item","a.example://item"],["b.example://item","a.example://item"]]}"#,
     )
     .expect("revision one should parse");
     let second = MappingDocument::from_json(
-        r#"{"schema":"trakkin.mapping/v1","revision":2,"mappings":[["a.example:item","b.example:item"],["a.example:item","z.example:item"]]}"#,
+        r#"{"schema":"trakkin.mapping/v1","revision":2,"mappings":[["a.example://item","b.example://item"],["a.example://item","z.example://item"]]}"#,
     )
     .expect("revision two should parse");
 
-    assert_eq!(first.mappings()[0][0].as_str(), "a.example:item");
-    assert_eq!(first.mappings()[0][1].as_str(), "b.example:item");
+    assert_eq!(first.mappings()[0][0].as_str(), "a.example://item");
+    assert_eq!(first.mappings()[0][1].as_str(), "b.example://item");
     assert_ne!(first.content_hash(), second.content_hash());
     assert_eq!(first.semantic_fingerprint(), second.semantic_fingerprint());
 }
@@ -106,7 +106,7 @@ fn production_document_parser_enforces_generated_boundaries() {
         "document_too_large"
     );
 
-    let mappings = vec![vec!["rows.example:a", "rows.example:b"]; 10_001];
+    let mappings = vec![vec!["rows.example://a", "rows.example://b"]; 10_001];
     let input = serde_json::json!({
         "schema": "trakkin.mapping/v1",
         "revision": 1,
@@ -120,7 +120,7 @@ fn production_document_parser_enforces_generated_boundaries() {
     );
 
     let endpoints = (0..32)
-        .map(|index| format!("rows.example:item/{index}"))
+        .map(|index| format!("rows.example://item/{index}"))
         .collect::<Vec<_>>();
     let input = serde_json::json!({
         "schema": "trakkin.mapping/v1",
@@ -149,8 +149,8 @@ fn document_json_with_canonical_size(target: usize) -> String {
     let mappings = (0..10_000)
         .map(|index| {
             vec![
-                format!("size.example:a/{index:05}/"),
-                format!("size.example:b/{index:05}"),
+                format!("size.example://a/{index:05}/"),
+                format!("size.example://b/{index:05}"),
             ]
         })
         .collect::<Vec<_>>();
@@ -177,7 +177,7 @@ fn document_json_with_canonical_size(target: usize) -> String {
             .expect("generated endpoint text")
             .to_owned();
         let value_length = endpoint
-            .split_once(':')
+            .split_once("://")
             .expect("generated endpoint reference")
             .1
             .len();

@@ -23,8 +23,8 @@ impl PortableEndpoint {
     ) -> Result<Self, MappingError> {
         let encoded_value = encode_value(value);
         let endpoint = match selector {
-            Some(selector) => format!("{namespace}:{encoded_value}[{selector}]"),
-            None => format!("{namespace}:{encoded_value}"),
+            Some(selector) => format!("{namespace}://{encoded_value}[{selector}]"),
+            None => format!("{namespace}://{encoded_value}"),
         };
         Self::parse(&endpoint)
     }
@@ -50,10 +50,10 @@ impl PortableEndpoint {
         }
 
         let (reference, raw_selector) = split_selector(input)?;
-        let (namespace, encoded_value) = reference.split_once(':').ok_or_else(|| {
+        let (namespace, encoded_value) = reference.split_once("://").ok_or_else(|| {
             MappingError::new(
                 "reference_invalid",
-                "portable references require a namespace and value",
+                "portable references require a namespace and :// value delimiter",
             )
         })?;
         validate_namespace(namespace)?;
@@ -61,8 +61,10 @@ impl PortableEndpoint {
         let normalized_value = encode_value(&value);
         let selector = raw_selector.map(PortableSelector::parse).transpose()?;
         let normalized = match &selector {
-            Some(selector) => format!("{namespace}:{normalized_value}[{}]", selector.as_str()),
-            None => format!("{namespace}:{normalized_value}"),
+            Some(selector) => {
+                format!("{namespace}://{normalized_value}[{}]", selector.as_str())
+            }
+            None => format!("{namespace}://{normalized_value}"),
         };
 
         Ok(Self {

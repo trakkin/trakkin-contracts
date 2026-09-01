@@ -52,7 +52,7 @@ fn production_package_verifies_documents_and_provenance() {
         .expect("compatible package should verify");
     assert_eq!(
         verified.document_hashes(),
-        &["sha256:3c292a44994f0bd715e8629e672db7e90d830a0c348bde69154e626cea4edfac"]
+        &["sha256:d422dcfd15bb7bdef4f5e0b6a97f5e0ab52004ac28376515fdc3fe4e7b9e7309"]
     );
     assert_eq!(package.license_expression(), "MIT");
     assert_eq!(package.attribution()[0].name, "Example Mapping Authors");
@@ -104,7 +104,7 @@ fn production_package_rejects_hash_and_path_mismatches() {
     let package = MappingPackage::from_json(&expanded_manifest(&vectors, valid).to_string())
         .expect("valid package manifest should parse");
     let document = MappingDocument::from_json(
-        r#"{"schema":"trakkin.mapping/v1","revision":1,"mappings":[["example.media:a","example.media:b"]]}"#,
+        r#"{"schema":"trakkin.mapping/v1","revision":1,"mappings":[["example.media://a","example.media://b"]]}"#,
     )
     .expect("different document should parse");
     let documents = BTreeMap::from([("mappings/signal.json".to_owned(), document)]);

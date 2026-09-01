@@ -4,7 +4,7 @@
   "document": {
     "schema": "trakkin.mapping/v1",
     "revision": 4,
-    "mappings": [["example.media:original[episode:1..12]","example.media:quiet-signal[episode:1..12]"]]
+    "mappings": [["example.media://original[episode:1..12]", "example.media://quiet-signal[episode:1..12]"]]
   },
   "sharedPins": {
     "resolverVersion": "resolver/v1",
@@ -14,24 +14,58 @@
     "logicalTime": "2030-01-02T03:04:05Z"
   },
   "instances": [
-    {"databaseId":"database-a","workspaceId":"workspace-a","connectionId":"connection-a","sourceId":"source-a","contributorProviderSourceKey":"contributor-list","contributorProviderItemKey":"original","providerSourceKey":"receiver-list","providerItemKey":"quiet-signal"},
-    {"databaseId":"database-b","workspaceId":"workspace-b","connectionId":"connection-b","sourceId":"source-b","contributorProviderSourceKey":"contributor-list","contributorProviderItemKey":"original","providerSourceKey":"receiver-list","providerItemKey":"quiet-signal"}
+    {
+      "databaseId": "database-a",
+      "workspaceId": "workspace-a",
+      "connectionId": "connection-a",
+      "sourceId": "source-a",
+      "contributorProviderSourceKey": "contributor-list",
+      "contributorProviderItemKey": "original",
+      "providerSourceKey": "receiver-list",
+      "providerItemKey": "quiet-signal"
+    },
+    {
+      "databaseId": "database-b",
+      "workspaceId": "workspace-b",
+      "connectionId": "connection-b",
+      "sourceId": "source-b",
+      "contributorProviderSourceKey": "contributor-list",
+      "contributorProviderItemKey": "original",
+      "providerSourceKey": "receiver-list",
+      "providerItemKey": "quiet-signal"
+    }
   ],
-  "expectedCanonicalBytes": "{\"mappings\":[[\"example.media:original[episode:1..12]\",\"example.media:quiet-signal[episode:1..12]\"]],\"revision\":4,\"schema\":\"trakkin.mapping/v1\"}",
-  "expectedContentHash": "sha256:8205a841e73ada07ab1771113da100cf0f3ceddd35a13103c7f2dfd47cc484a0",
+  "expectedCanonicalBytes": "{\"mappings\":[[\"example.media://original[episode:1..12]\",\"example.media://quiet-signal[episode:1..12]\"]],\"revision\":4,\"schema\":\"trakkin.mapping/v1\"}",
+  "expectedContentHash": "sha256:92e273975e1fd210c74fd3e18f45e4a2f7faa3b9f8945f7f620b54da3f67b123",
   "expectedResolutionOutput": {
     "completeness": "complete",
     "correspondences": [
       {
-        "source": {"endpoint":"example.media:original[episode:1..12]","providerSubject":{"providerSourceKey":"contributor-list","providerItemKey":"original"}},
-        "target": {"endpoint":"example.media:quiet-signal[episode:1..12]","providerSubject":{"providerSourceKey":"receiver-list","providerItemKey":"quiet-signal"},"membership":"absent"},
-        "transform": {"kind":"identity","numerator":1,"denominator":1},
+        "source": {
+          "endpoint": "example.media://original[episode:1..12]",
+          "providerSubject": { "providerSourceKey": "contributor-list", "providerItemKey": "original" }
+        },
+        "target": {
+          "endpoint": "example.media://quiet-signal[episode:1..12]",
+          "providerSubject": { "providerSourceKey": "receiver-list", "providerItemKey": "quiet-signal" },
+          "membership": "absent"
+        },
+        "transform": { "kind": "identity", "numerator": 1, "denominator": 1 },
         "proof": {
           "kind": "direct",
-          "revisionHash": "sha256:8205a841e73ada07ab1771113da100cf0f3ceddd35a13103c7f2dfd47cc484a0",
+          "revisionHash": "sha256:92e273975e1fd210c74fd3e18f45e4a2f7faa3b9f8945f7f620b54da3f67b123",
           "rowHash": "sha256:f9808e1c4b793cb9ce0cbbb40e2020965b6449e6a7d8f9ea376552f4dbb398dc",
-          "endpointHashes": ["sha256:a0b0031f1bf476d60f1841c0c7fe32e4143b20316b028fec75820edf7a11944c","sha256:c14178b9ca9781a2f8fac73b0b6f6fd6c448e050438088690f400859a9218574"],
-          "pins": {"resolverVersion":"resolver/v1","coordinateRegistryDigest":"sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","catalogEvidenceDigest":"sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb","lookupEvidenceRevision":"lookup-r1","logicalTime":"2030-01-02T03:04:05Z"}
+          "endpointHashes": [
+            "sha256:a0b0031f1bf476d60f1841c0c7fe32e4143b20316b028fec75820edf7a11944c",
+            "sha256:c14178b9ca9781a2f8fac73b0b6f6fd6c448e050438088690f400859a9218574"
+          ],
+          "pins": {
+            "resolverVersion": "resolver/v1",
+            "coordinateRegistryDigest": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            "catalogEvidenceDigest": "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+            "lookupEvidenceRevision": "lookup-r1",
+            "logicalTime": "2030-01-02T03:04:05Z"
+          }
         }
       }
     ],
@@ -47,5 +81,11 @@
     "membership": "absent",
     "lookupRowsPersisted": 0
   },
-  "covers": ["portability.cross-instance", "portability.different-local-ids", "portability.equal-resolution", "evidence.empty-membership", "proof.hash-identities"]
+  "covers": [
+    "portability.cross-instance",
+    "portability.different-local-ids",
+    "portability.equal-resolution",
+    "evidence.empty-membership",
+    "proof.hash-identities"
+  ]
 }
