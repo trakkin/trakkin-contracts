@@ -20,6 +20,9 @@ use tonic::{
     service::Interceptor,
     transport::Server,
 };
+use tracing::info_span;
+
+use crate::{CORRELATION_ID_HEADER, TRACEPARENT_HEADER, TRACESTATE_HEADER};
 
 pub const BOOTSTRAP_VERSION: u32 = 1;
 pub const LAUNCH_TOKEN_HEADER: &str = "x-trakkin-launch-token";
@@ -205,7 +208,34 @@ where
     write_ready_message(&mut ready_writer, &ready)?;
     drop(ready_writer);
 
+    let process_instance_id = launch.process_instance_id.clone();
+
     Server::builder()
+        .trace_fn(move |request| {
+            let correlation_id = request
+                .headers()
+                .get(CORRELATION_ID_HEADER)
+                .and_then(|value| value.to_str().ok())
+                .unwrap_or("");
+            let traceparent = request
+                .headers()
+                .get(TRACEPARENT_HEADER)
+                .and_then(|value| value.to_str().ok())
+                .unwrap_or("");
+            let tracestate = request
+                .headers()
+                .get(TRACESTATE_HEADER)
+                .and_then(|value| value.to_str().ok())
+                .unwrap_or("");
+            info_span!(
+                "provider.rpc",
+                process.instance_id = %process_instance_id,
+                rpc.method = %request.uri().path(),
+                trakkin.correlation_id = correlation_id,
+                otel.traceparent = traceparent,
+                otel.tracestate = tracestate,
+            )
+        })
         .add_service(AdapterServiceServer::with_interceptor(
             adapter,
             token.interceptor(),

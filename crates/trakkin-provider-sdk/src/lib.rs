@@ -1,7 +1,11 @@
 mod bootstrap;
+mod context;
+mod observability;
 pub mod validation;
 
 pub use bootstrap::*;
+pub use context::*;
+pub use observability::*;
 
 pub const PROTOCOL_MAJOR: u32 = 1;
 pub const PROTOCOL_MINOR: u32 = 0;
