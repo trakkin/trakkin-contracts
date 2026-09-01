@@ -5,28 +5,28 @@ use sha2::{Digest, Sha256};
 use trakkin_mapping::PortableEndpoint as MappingEndpoint;
 
 use crate::v1::{
-    AccountSnapshot, AdapterError, AuthenticationPrompt, AuthenticationStatus,
-    CancelAuthenticationResponse, CancelOperationResponse, CatalogBatch,
-    ContinueAuthenticationResponse, CoordinateBacking, CoordinateBinding, CoordinateBindingKey,
-    DescribeConnectionResponse, DiscoverSourcesResponse, EndpointLookupCandidate, HealthResponse,
-    HealthStatus, Key, ListAuthenticationMethodsResponse, LookupCandidate,
-    LookupPortableReferencesResponse, OpenConnectionResponse, PortableEndpoint, PortableReference,
-    ProviderItem, ReadAssetResponse, ReadCatalogRequest, ReadCatalogResponse, ReadCompleted,
-    ReadFailed, ReadHeartbeat, ReadMode, ReadStateRequest, ReadStateResponse,
-    ReadTargetedStateRequest, ReadTargetedStateResponse, ResolvePortableEndpointsRequest,
-    ResolvePortableEndpointsResponse, SourceCapabilities, SourceMembership, SourceSnapshot,
-    StartAuthenticationResponse, StateBatch, StateField, StateFieldDescriptor, StateFieldQuantizer,
-    StatePresence, SubjectReference, TargetedStateFieldEffectKind, TargetedStateMembershipEffect,
-    TargetedStateReadCapability, TargetedStateWriteCapability, TargetedStateWriteCertainty,
-    TargetedStateWriteIdempotencyMode, TargetedStateWritePreconditionMode,
-    TargetedStateWriteRetryDisposition, TargetedStateWriteStatus, Term, ValidateConnectionResponse,
-    WriteTargetedStateRequest, WriteTargetedStateResponse, cancel_authentication_response,
-    cancel_operation_response, describe_connection_response, discover_sources_response,
+    AccountSnapshot, AuthenticationProgress, AuthenticationStatus, CancelAuthenticationResponse,
+    CancelOperationResponse, CatalogBatch, ContinueAuthenticationResponse, CoordinateBacking,
+    CoordinateBinding, CoordinateBindingKey, DescribeConnectionResponse, DiscoverSourcesResponse,
+    EndpointLookupCandidate, HealthResponse, HealthStatus, Key, ListAuthenticationMethodsResponse,
+    LookupCandidate, LookupPortableReferencesResponse, OpenConnectionResponse, OperationFailure,
+    OperationFailureCategory, PortableEndpoint, PortableReference, ProviderItem, ReadAssetResponse,
+    ReadCatalogRequest, ReadCatalogResponse, ReadCompleted, ReadFailed, ReadHeartbeat, ReadMode,
+    ReadStateRequest, ReadStateResponse, ReadTargetedStateRequest, ReadTargetedStateResponse,
+    ResolvePortableEndpointsRequest, ResolvePortableEndpointsResponse, RetryDisposition,
+    SourceCapabilities, SourceMembership, SourceSnapshot, StartAuthenticationResponse, StateBatch,
+    StateField, StateFieldDescriptor, StateFieldQuantizer, StatePresence, SubjectReference,
+    TargetedStateFieldEffectKind, TargetedStateMembershipEffect, TargetedStateReadCapability,
+    TargetedStateWriteCapability, TargetedStateWriteCertainty, TargetedStateWriteIdempotencyMode,
+    TargetedStateWritePreconditionMode, TargetedStateWriteRetryDisposition,
+    TargetedStateWriteStatus, Term, ValidateConnectionResponse, WriteTargetedStateRequest,
+    WriteTargetedStateResponse, cancel_authentication_response, cancel_operation_response,
+    continue_authentication_response, describe_connection_response, discover_sources_response,
     list_authentication_methods_response, lookup_portable_references_response,
     open_connection_response, portable_endpoint_resolution, portable_reference_lookup_result,
     read_asset_response, read_catalog_response, read_state_response, read_targeted_state_response,
-    resolve_portable_endpoints_response, subject_reference, targeted_state_write_intent,
-    validate_connection_response,
+    resolve_portable_endpoints_response, start_authentication_response, subject_reference,
+    targeted_state_write_intent, validate_connection_response,
 };
 
 #[derive(Clone, Debug, Eq, PartialEq, thiserror::Error)]
@@ -135,16 +135,52 @@ pub fn portable_endpoint(
     Ok(())
 }
 
-pub fn adapter_error(error: &AdapterError) -> Result<(), ValidationError> {
+pub fn adapter_error(error: &OperationFailure) -> Result<(), ValidationError> {
+    let category = OperationFailureCategory::try_from(error.category)
+        .map_err(|_| ValidationError::Invalid("operation failure category"))?;
+    if category == OperationFailureCategory::Unspecified {
+        return Err(ValidationError::Invalid("operation failure category"));
+    }
     non_empty_text(&error.code, "adapter error code")?;
     non_empty_text(&error.safe_message, "adapter safe message")?;
     if error.safe_message.len() > 2048 || error.safe_message.chars().any(char::is_control) {
         return Err(ValidationError::Invalid("adapter safe message"));
     }
+    let retry = error
+        .retry
+        .as_ref()
+        .ok_or(ValidationError::Missing("operation failure retry advice"))?;
+    let disposition = RetryDisposition::try_from(retry.disposition)
+        .map_err(|_| ValidationError::Invalid("operation failure retry disposition"))?;
+    match (disposition, retry.after.as_ref()) {
+        (RetryDisposition::NotRetryable | RetryDisposition::Retryable, None) => {}
+        (RetryDisposition::RetryAfter, Some(after))
+            if after.seconds >= 0
+                && (0..1_000_000_000).contains(&after.nanos)
+                && (after.seconds > 0 || after.nanos > 0) => {}
+        (RetryDisposition::Unspecified, _) => {
+            return Err(ValidationError::Invalid(
+                "operation failure retry disposition",
+            ));
+        }
+        _ => return Err(ValidationError::Invalid("operation failure retry advice")),
+    }
+    if error.field_problems.len() > 64 {
+        return Err(ValidationError::Invalid("operation failure field problems"));
+    }
     for problem in &error.field_problems {
         non_empty_text(&problem.path, "field problem path")?;
         non_empty_text(&problem.code, "field problem code")?;
         non_empty_text(&problem.message, "field problem message")?;
+    }
+    non_empty_text(&error.diagnostic_id, "operation failure diagnostic ID")?;
+    if error.diagnostic_id.len() > 128
+        || !error
+            .diagnostic_id
+            .bytes()
+            .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'-' | b'_' | b'.' | b':'))
+    {
+        return Err(ValidationError::Invalid("operation failure diagnostic ID"));
     }
     Ok(())
 }
@@ -335,52 +371,43 @@ pub fn targeted_state_write_capability(
 pub fn start_authentication_response(
     response: &StartAuthenticationResponse,
 ) -> Result<(), ValidationError> {
-    authentication_response(
-        &response.authentication_id,
-        response.status,
-        response.prompt.as_ref(),
-        &response.accounts,
-        response.error.as_ref(),
-    )
+    match response.outcome.as_ref() {
+        Some(start_authentication_response::Outcome::Result(result)) => {
+            authentication_progress(result)
+        }
+        Some(start_authentication_response::Outcome::Error(error)) => adapter_error(error),
+        None => Err(ValidationError::Missing("authentication start outcome")),
+    }
 }
 
 pub fn continue_authentication_response(
     response: &ContinueAuthenticationResponse,
 ) -> Result<(), ValidationError> {
-    authentication_response(
-        &response.authentication_id,
-        response.status,
-        response.prompt.as_ref(),
-        &response.accounts,
-        response.error.as_ref(),
-    )
+    match response.outcome.as_ref() {
+        Some(continue_authentication_response::Outcome::Result(result)) => {
+            authentication_progress(result)
+        }
+        Some(continue_authentication_response::Outcome::Error(error)) => adapter_error(error),
+        None => Err(ValidationError::Missing(
+            "authentication continuation outcome",
+        )),
+    }
 }
 
-fn authentication_response(
-    authentication_id: &str,
-    status: i32,
-    prompt: Option<&AuthenticationPrompt>,
-    accounts: &[AccountSnapshot],
-    error: Option<&AdapterError>,
-) -> Result<(), ValidationError> {
-    non_empty_text(authentication_id, "authentication ID")?;
-    let status = AuthenticationStatus::try_from(status)
+fn authentication_progress(progress: &AuthenticationProgress) -> Result<(), ValidationError> {
+    non_empty_text(&progress.authentication_id, "authentication ID")?;
+    let status = AuthenticationStatus::try_from(progress.status)
         .map_err(|_| ValidationError::Invalid("authentication status"))?;
-    if status == AuthenticationStatus::Unspecified {
+    if matches!(
+        status,
+        AuthenticationStatus::Unspecified | AuthenticationStatus::Failed
+    ) {
         return Err(ValidationError::Invalid("authentication status"));
     }
-    for account in accounts {
+    for account in &progress.accounts {
         account_snapshot(account)?;
     }
-    if let Some(error) = error {
-        adapter_error(error)?;
-        if status != AuthenticationStatus::Failed {
-            return Err(ValidationError::ErrorWithPayload);
-        }
-    } else if status == AuthenticationStatus::Failed {
-        return Err(ValidationError::Missing("authentication failure error"));
-    }
-    if status == AuthenticationStatus::InputRequired && prompt.is_none() {
+    if status == AuthenticationStatus::InputRequired && progress.prompt.is_none() {
         return Err(ValidationError::Missing("authentication prompt"));
     }
     Ok(())

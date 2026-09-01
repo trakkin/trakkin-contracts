@@ -86,12 +86,38 @@ message FieldProblem {
   string message = 3;
 }
 
-message AdapterError {
-  string code = 1;
-  string safe_message = 2;
-  bool retryable = 3;
-  google.protobuf.Duration retry_after = 4;
+enum OperationFailureCategory {
+  OPERATION_FAILURE_CATEGORY_UNSPECIFIED = 0;
+  OPERATION_FAILURE_CATEGORY_INVALID_INPUT = 1;
+  OPERATION_FAILURE_CATEGORY_AUTHENTICATION = 2;
+  OPERATION_FAILURE_CATEGORY_AUTHORIZATION = 3;
+  OPERATION_FAILURE_CATEGORY_RATE_LIMITED = 4;
+  OPERATION_FAILURE_CATEGORY_UNAVAILABLE = 5;
+  OPERATION_FAILURE_CATEGORY_CONFLICT = 6;
+  OPERATION_FAILURE_CATEGORY_UNSUPPORTED = 7;
+  OPERATION_FAILURE_CATEGORY_INVALID_REMOTE_DATA = 8;
+  OPERATION_FAILURE_CATEGORY_INTERNAL = 9;
+}
+
+enum RetryDisposition {
+  RETRY_DISPOSITION_UNSPECIFIED = 0;
+  RETRY_DISPOSITION_NOT_RETRYABLE = 1;
+  RETRY_DISPOSITION_RETRYABLE = 2;
+  RETRY_DISPOSITION_RETRY_AFTER = 3;
+}
+
+message RetryAdvice {
+  RetryDisposition disposition = 1;
+  google.protobuf.Duration after = 2;
+}
+
+message OperationFailure {
+  OperationFailureCategory category = 1;
+  string code = 2;
+  string safe_message = 3;
+  RetryAdvice retry = 4;
   repeated FieldProblem field_problems = 5;
+  string diagnostic_id = 6;
 }
 
 message HandshakeRequest {
@@ -118,7 +144,7 @@ enum HealthStatus {
 
 message HealthResponse {
   HealthStatus status = 1;
-  AdapterError error = 2;
+  OperationFailure error = 2;
 }
 
 enum ConfigurationValueKind {
@@ -176,7 +202,7 @@ message DescribeConnectionResult {
 message DescribeConnectionResponse {
   oneof outcome {
     DescribeConnectionResult result = 1;
-    AdapterError error = 2;
+    OperationFailure error = 2;
   }
 }
 
@@ -192,7 +218,7 @@ message ValidateConnectionResult {
 message ValidateConnectionResponse {
   oneof outcome {
     ValidateConnectionResult result = 1;
-    AdapterError error = 2;
+    OperationFailure error = 2;
   }
 }
 
@@ -212,7 +238,7 @@ message ListAuthenticationMethodsResult {
 message ListAuthenticationMethodsResponse {
   oneof outcome {
     ListAuthenticationMethodsResult result = 1;
-    AdapterError error = 2;
+    OperationFailure error = 2;
   }
 }
 
@@ -248,24 +274,27 @@ message AccountSnapshot {
   string display_name = 2;
 }
 
-message StartAuthenticationResponse {
+message AuthenticationProgress {
   string authentication_id = 1;
   AuthenticationStatus status = 2;
   AuthenticationPrompt prompt = 3;
   repeated AccountSnapshot accounts = 4;
   repeated SecretPatch secret_patches = 5;
   google.protobuf.Duration retry_after = 6;
-  AdapterError error = 7;
+}
+
+message StartAuthenticationResponse {
+  oneof outcome {
+    AuthenticationProgress result = 1;
+    OperationFailure error = 2;
+  }
 }
 
 message ContinueAuthenticationResponse {
-  string authentication_id = 1;
-  AuthenticationStatus status = 2;
-  AuthenticationPrompt prompt = 3;
-  repeated AccountSnapshot accounts = 4;
-  repeated SecretPatch secret_patches = 5;
-  google.protobuf.Duration retry_after = 6;
-  AdapterError error = 7;
+  oneof outcome {
+    AuthenticationProgress result = 1;
+    OperationFailure error = 2;
+  }
 }
 
 message CancelAuthenticationRequest {
@@ -277,7 +306,7 @@ message CancelAuthenticationResult {}
 message CancelAuthenticationResponse {
   oneof outcome {
     CancelAuthenticationResult result = 1;
-    AdapterError error = 2;
+    OperationFailure error = 2;
   }
 }
 
@@ -318,7 +347,7 @@ message OpenConnectionResult {
 message OpenConnectionResponse {
   oneof outcome {
     OpenConnectionResult result = 1;
-    AdapterError error = 2;
+    OperationFailure error = 2;
   }
 }
 
@@ -431,7 +460,7 @@ message DiscoverSourcesResult {
 message DiscoverSourcesResponse {
   oneof outcome {
     DiscoverSourcesResult result = 1;
-    AdapterError error = 2;
+    OperationFailure error = 2;
   }
 }
 
@@ -502,7 +531,7 @@ message ReadCompleted {
 }
 
 message ReadFailed {
-  AdapterError error = 1;
+  OperationFailure error = 1;
 }
 
 message ReadCancelled {}
@@ -632,7 +661,7 @@ message TargetedStateReadAmbiguous {
 }
 
 message TargetedStateReadIndeterminate {
-  AdapterError error = 1;
+  OperationFailure error = 1;
 }
 
 message ReadTargetedStateResponse {
@@ -721,7 +750,7 @@ message WriteTargetedStateResponse {
   bytes provider_revision = 6;
   bytes successor_precondition = 7;
   bytes receipt = 8;
-  AdapterError error = 9;
+  OperationFailure error = 9;
 }
 
 message LookupEvidence {
@@ -770,7 +799,7 @@ message LookupPortableReferencesResult {
 message LookupPortableReferencesResponse {
   oneof outcome {
     LookupPortableReferencesResult result = 1;
-    AdapterError error = 2;
+    OperationFailure error = 2;
   }
 }
 
@@ -811,7 +840,7 @@ message ResolvePortableEndpointsResult {
 message ResolvePortableEndpointsResponse {
   oneof outcome {
     ResolvePortableEndpointsResult result = 1;
-    AdapterError error = 2;
+    OperationFailure error = 2;
   }
 }
 
@@ -839,7 +868,7 @@ message ReadAssetResult {
 message ReadAssetResponse {
   oneof outcome {
     ReadAssetResult result = 1;
-    AdapterError error = 2;
+    OperationFailure error = 2;
   }
 }
 
@@ -852,7 +881,7 @@ message CancelOperationResult {}
 message CancelOperationResponse {
   oneof outcome {
     CancelOperationResult result = 1;
-    AdapterError error = 2;
+    OperationFailure error = 2;
   }
 }
 

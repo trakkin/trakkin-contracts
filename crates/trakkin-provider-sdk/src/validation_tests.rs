@@ -1,21 +1,22 @@
 use crate::{
     v1::{
-        AccountSnapshot, AdapterError, AuthenticationStatus, CancelAuthenticationResponse,
-        CancelAuthenticationResult, CancelOperationResponse, CancelOperationResult, CatalogBatch,
-        ConfigurationValueKind, ConnectionCapabilities, ContentHash,
-        ContinueAuthenticationResponse, CoordinateBacking, CoordinateBinding,
+        AccountSnapshot, AuthenticationProgress, AuthenticationStatus,
+        CancelAuthenticationResponse, CancelAuthenticationResult, CancelOperationResponse,
+        CancelOperationResult, CatalogBatch, ConfigurationValueKind, ConnectionCapabilities,
+        ContentHash, ContinueAuthenticationResponse, CoordinateBacking, CoordinateBinding,
         DescribeConnectionResponse, DiscoverSourcesResponse, DiscoverSourcesResult,
         EndpointLookupCandidate, EndpointLookupCapability, EndpointLookupMatched, FieldProblem,
         HealthResponse, HealthStatus, Key, ListAuthenticationMethodsResponse, LookupAmbiguous,
         LookupCandidate, LookupCapability, LookupEvidence, LookupPortableReferencesResponse,
         LookupPortableReferencesResult, OpenConnectionResponse, OpenConnectionResult,
-        PortableEndpoint, PortableEndpointResolution, PortableReference,
-        PortableReferenceLookupResult, ProviderItem, ReadAssetResponse, ReadAssetResult,
-        ReadCancelled, ReadCatalogRequest, ReadCatalogResponse, ReadCompleted, ReadMode,
-        ReadStateRequest, ReadStateResponse, ReadTargetedStateRequest, ReadTargetedStateResponse,
-        ResolvePortableEndpointsRequest, ResolvePortableEndpointsResponse,
-        ResolvePortableEndpointsResult, SourceAvailability, SourceCapabilities, SourceMembership,
-        SourceSnapshot, StartAuthenticationResponse, StateBatch, StateField, StateFieldDescriptor,
+        OperationFailure, OperationFailureCategory, PortableEndpoint, PortableEndpointResolution,
+        PortableReference, PortableReferenceLookupResult, ProviderItem, ReadAssetResponse,
+        ReadAssetResult, ReadCancelled, ReadCatalogRequest, ReadCatalogResponse, ReadCompleted,
+        ReadMode, ReadStateRequest, ReadStateResponse, ReadTargetedStateRequest,
+        ReadTargetedStateResponse, ResolvePortableEndpointsRequest,
+        ResolvePortableEndpointsResponse, ResolvePortableEndpointsResult, RetryAdvice,
+        RetryDisposition, SourceAvailability, SourceCapabilities, SourceMembership, SourceSnapshot,
+        StartAuthenticationResponse, StateBatch, StateField, StateFieldDescriptor,
         StateFieldNumericRange, StateFieldQuantizer, StatePresence, SubjectReference,
         TargetedStateClear, TargetedStateFieldEffectKind, TargetedStateFieldObservation,
         TargetedStateFieldWriteCapability, TargetedStateMembershipEffect,
@@ -26,18 +27,37 @@ use crate::{
         TargetedStateWritePreconditionMode, TargetedStateWriteRetryDisposition,
         TargetedStateWriteStatus, Term, ValidateConnectionResponse, ValidateConnectionResult,
         Value, WriteTargetedStateRequest, WriteTargetedStateResponse,
-        cancel_authentication_response, cancel_operation_response, describe_connection_response,
-        discover_sources_response, list_authentication_methods_response,
-        lookup_portable_references_response, open_connection_response,
-        portable_endpoint_resolution, portable_reference_lookup_result, read_asset_response,
-        read_catalog_response, read_state_response, read_targeted_state_response,
-        resolve_portable_endpoints_response, subject_reference, targeted_state_write_intent,
+        cancel_authentication_response, cancel_operation_response,
+        continue_authentication_response, describe_connection_response, discover_sources_response,
+        list_authentication_methods_response, lookup_portable_references_response,
+        open_connection_response, portable_endpoint_resolution, portable_reference_lookup_result,
+        read_asset_response, read_catalog_response, read_state_response,
+        read_targeted_state_response, resolve_portable_endpoints_response,
+        start_authentication_response, subject_reference, targeted_state_write_intent,
         validate_connection_response, value,
     },
     validation::{self, CatalogStreamValidator, ValidationError},
 };
 use prost::Message;
 use sha2::{Digest, Sha256};
+
+fn operation_failure(code: &str, safe_message: &str, retryable: bool) -> OperationFailure {
+    OperationFailure {
+        category: OperationFailureCategory::Unavailable as i32,
+        code: code.to_owned(),
+        safe_message: safe_message.to_owned(),
+        retry: Some(RetryAdvice {
+            disposition: if retryable {
+                RetryDisposition::Retryable as i32
+            } else {
+                RetryDisposition::NotRetryable as i32
+            },
+            after: None,
+        }),
+        diagnostic_id: format!("fixture:{code}"),
+        ..OperationFailure::default()
+    }
+}
 
 fn key(value: &str) -> Key {
     Key {
@@ -277,11 +297,7 @@ fn connection_lookup_capabilities_are_absent_or_usable() {
 
 #[test]
 fn connection_setup_errors_are_exclusive_with_payloads() {
-    let error = AdapterError {
-        code: "setup_failed".to_owned(),
-        safe_message: "Connection setup failed".to_owned(),
-        ..AdapterError::default()
-    };
+    let error = operation_failure("setup_failed", "Connection setup failed", false);
 
     validation::describe_connection_response(&DescribeConnectionResponse {
         outcome: Some(describe_connection_response::Outcome::Error(error.clone())),
@@ -323,11 +339,7 @@ fn connection_setup_errors_are_exclusive_with_payloads() {
 
 #[test]
 fn unary_operation_responses_require_closed_outcomes() {
-    let error = AdapterError {
-        code: "operation_failed".to_owned(),
-        safe_message: "Adapter operation failed".to_owned(),
-        ..AdapterError::default()
-    };
+    let error = operation_failure("operation_failed", "Adapter operation failed", false);
 
     validation::discover_sources_response(
         &[],
@@ -395,16 +407,24 @@ fn unary_operation_responses_require_closed_outcomes() {
 #[test]
 fn authentication_prompt_and_state_cancellation_are_validated() {
     let step = StartAuthenticationResponse {
-        authentication_id: "auth-1".to_owned(),
-        status: AuthenticationStatus::InputRequired as i32,
-        prompt: Some(Default::default()),
-        ..StartAuthenticationResponse::default()
+        outcome: Some(start_authentication_response::Outcome::Result(
+            AuthenticationProgress {
+                authentication_id: "auth-1".to_owned(),
+                status: AuthenticationStatus::InputRequired as i32,
+                prompt: Some(Default::default()),
+                ..AuthenticationProgress::default()
+            },
+        )),
     };
     validation::start_authentication_response(&step).unwrap();
     validation::continue_authentication_response(&ContinueAuthenticationResponse {
-        authentication_id: "auth-2".to_owned(),
-        status: AuthenticationStatus::Waiting as i32,
-        ..ContinueAuthenticationResponse::default()
+        outcome: Some(continue_authentication_response::Outcome::Result(
+            AuthenticationProgress {
+                authentication_id: "auth-2".to_owned(),
+                status: AuthenticationStatus::Waiting as i32,
+                ..AuthenticationProgress::default()
+            },
+        )),
     })
     .unwrap();
 
@@ -427,12 +447,11 @@ fn authentication_prompt_and_state_cancellation_are_validated() {
 
 #[test]
 fn status_coupled_errors_and_cancellation_outcomes_are_validated() {
-    let error = AdapterError {
-        code: "temporarily_unavailable".to_owned(),
-        safe_message: "the adapter is temporarily unavailable".to_owned(),
-        retryable: true,
-        ..AdapterError::default()
-    };
+    let error = operation_failure(
+        "temporarily_unavailable",
+        "the adapter is temporarily unavailable",
+        true,
+    );
 
     for status in [
         HealthStatus::Ready,
@@ -459,24 +478,36 @@ fn status_coupled_errors_and_cancellation_outcomes_are_validated() {
         AuthenticationStatus::Completed,
         AuthenticationStatus::Cancelled,
         AuthenticationStatus::Expired,
-        AuthenticationStatus::Failed,
     ] {
-        let expects_error = status == AuthenticationStatus::Failed;
         let step = StartAuthenticationResponse {
-            authentication_id: "auth-1".to_owned(),
-            status: status as i32,
-            prompt: (status == AuthenticationStatus::InputRequired).then_some(Default::default()),
-            error: expects_error.then(|| error.clone()),
-            ..StartAuthenticationResponse::default()
+            outcome: Some(start_authentication_response::Outcome::Result(
+                AuthenticationProgress {
+                    authentication_id: "auth-1".to_owned(),
+                    status: status as i32,
+                    prompt: (status == AuthenticationStatus::InputRequired)
+                        .then_some(Default::default()),
+                    ..AuthenticationProgress::default()
+                },
+            )),
         };
         validation::start_authentication_response(&step).unwrap();
-
-        let contradictory = StartAuthenticationResponse {
-            error: (!expects_error).then(|| error.clone()),
-            ..step
-        };
-        assert!(validation::start_authentication_response(&contradictory).is_err());
     }
+    validation::start_authentication_response(&StartAuthenticationResponse {
+        outcome: Some(start_authentication_response::Outcome::Error(error.clone())),
+    })
+    .unwrap();
+    assert_eq!(
+        validation::start_authentication_response(&StartAuthenticationResponse {
+            outcome: Some(start_authentication_response::Outcome::Result(
+                AuthenticationProgress {
+                    authentication_id: "auth-1".to_owned(),
+                    status: AuthenticationStatus::Failed as i32,
+                    ..AuthenticationProgress::default()
+                },
+            )),
+        }),
+        Err(ValidationError::Invalid("authentication status"))
+    );
 
     validation::cancel_authentication_response(&CancelAuthenticationResponse {
         outcome: Some(cancel_authentication_response::Outcome::Result(
@@ -867,12 +898,11 @@ fn targeted_state_read_is_bounded_and_preserves_membership_evidence() {
         ReadTargetedStateResponse {
             outcome: Some(read_targeted_state_response::Outcome::Indeterminate(
                 TargetedStateReadIndeterminate {
-                    error: Some(crate::v1::AdapterError {
-                        code: "temporarily_unavailable".to_owned(),
-                        safe_message: "targeted state is temporarily unavailable".to_owned(),
-                        retryable: true,
-                        ..Default::default()
-                    }),
+                    error: Some(operation_failure(
+                        "temporarily_unavailable",
+                        "targeted state is temporarily unavailable",
+                        true,
+                    )),
                 },
             )),
         },
@@ -1106,11 +1136,11 @@ fn targeted_state_write_outcomes_accept_only_valid_status_certainty_retry_combin
         if contradictory.error.is_some() {
             contradictory.error = None;
         } else {
-            contradictory.error = Some(AdapterError {
-                code: "unexpected_error".to_owned(),
-                safe_message: "the successful write returned an error".to_owned(),
-                ..AdapterError::default()
-            });
+            contradictory.error = Some(operation_failure(
+                "unexpected_error",
+                "the successful write returned an error",
+                false,
+            ));
         }
         assert!(
             validation::targeted_state_write_response(&request, &capability, &contradictory)
@@ -1214,11 +1244,12 @@ fn write_response(
             | TargetedStateWriteStatus::Failed
             | TargetedStateWriteStatus::Indeterminate
     )
-    .then(|| crate::v1::AdapterError {
-        code: "fixture_write_outcome".to_owned(),
-        safe_message: "fixture targeted write outcome".to_owned(),
-        retryable: status != TargetedStateWriteStatus::Rejected,
-        ..Default::default()
+    .then(|| {
+        operation_failure(
+            "fixture_write_outcome",
+            "fixture targeted write outcome",
+            status != TargetedStateWriteStatus::Rejected,
+        )
     });
     WriteTargetedStateResponse {
         status: status as i32,
