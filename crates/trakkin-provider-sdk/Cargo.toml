@@ -1,8 +1,14 @@
 [package]
+authors.workspace = true
+categories = ["network-programming", "api-bindings"]
 description = "Protocol SDK for Trakkin providers"
+documentation = "https://docs.rs/trakkin-provider-sdk"
 edition = "2024"
+homepage.workspace = true
+keywords = ["trakkin", "provider", "sdk"]
 license = "Apache-2.0"
 name = "trakkin-provider-sdk"
+readme = "README.md"
 repository = "https://github.com/trakkin/trakkin-contracts"
 rust-version = "1.97.1"
 version = "0.0.0"

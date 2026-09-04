@@ -1,8 +1,14 @@
 [package]
+authors.workspace = true
+categories = ["data-structures"]
 description = "Portable mapping documents and package models for Trakkin"
+documentation = "https://docs.rs/trakkin-mapping"
 edition = "2024"
+homepage.workspace = true
+keywords = ["trakkin", "mapping"]
 license = "Apache-2.0"
 name = "trakkin-mapping"
+readme = "README.md"
 repository = "https://github.com/trakkin/trakkin-contracts"
 rust-version = "1.97.1"
 version = "0.0.0"
