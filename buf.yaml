@@ -1,6 +1,7 @@
 version: v2
 modules:
   - path: crates/trakkin-provider-sdk/proto
+    name: buf.build/trakkin/provider
 lint:
   use:
     - STANDARD

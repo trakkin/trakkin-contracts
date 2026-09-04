@@ -11,7 +11,6 @@ use crate::{
         adapter_service_server::{AdapterService, AdapterServiceServer},
     },
 };
-use serde::{Deserialize, Serialize};
 use tokio::net::TcpListener;
 use tokio_stream::wrappers::TcpListenerStream;
 use tonic::{
@@ -26,24 +25,7 @@ use crate::{CORRELATION_ID_HEADER, TRACEPARENT_HEADER, TRACESTATE_HEADER};
 
 pub const BOOTSTRAP_VERSION: u32 = 1;
 pub const LAUNCH_TOKEN_HEADER: &str = "x-trakkin-launch-token";
-
-#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct LaunchRequest {
-    pub bootstrap_version: u32,
-    pub process_instance_id: String,
-    pub bind_address: String,
-    pub launch_token: String,
-}
-
-#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct ReadyMessage {
-    pub bootstrap_version: u32,
-    pub process_instance_id: String,
-    pub address: String,
-    pub launch_token: String,
-}
+pub use crate::bootstrap_v1::{LaunchRequest, ReadyMessage};
 
 impl LaunchRequest {
     pub fn validate(&self) -> Result<SocketAddr, LaunchMessageError> {
@@ -285,7 +267,12 @@ mod tests {
     #[test]
     fn bootstrap_round_trip_is_versioned_and_loopback_only() {
         let launch = launch();
-        let encoded = format!("{}\n", serde_json::to_string(&launch).unwrap());
+        let encoded = serde_json::to_string(&launch).unwrap();
+        assert_eq!(
+            encoded,
+            r#"{"bootstrapVersion":1,"processInstanceId":"process-1","bindAddress":"127.0.0.1:0","launchToken":"secret-token"}"#
+        );
+        let encoded = format!("{encoded}\n");
         assert_eq!(read_launch_request(Cursor::new(encoded)).unwrap(), launch);
 
         let ready = ReadyMessage {

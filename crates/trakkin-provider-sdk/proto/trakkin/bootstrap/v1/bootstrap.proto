@@ -1,0 +1,22 @@
+syntax = "proto3";
+
+package trakkin.bootstrap.v1;
+
+// Every AdapterService call carries the launch token as the
+// x-trakkin-launch-token ASCII gRPC metadata value.
+
+// The host writes one ProtoJSON-encoded message followed by LF to provider stdin.
+message LaunchRequest {
+  uint32 bootstrap_version = 1;
+  string process_instance_id = 2;
+  string bind_address = 3;
+  string launch_token = 4;
+}
+
+// The provider writes one ProtoJSON-encoded message followed by LF to stdout.
+message ReadyMessage {
+  uint32 bootstrap_version = 1;
+  string process_instance_id = 2;
+  string address = 3;
+  string launch_token = 4;
+}

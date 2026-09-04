@@ -8,7 +8,7 @@ use crate::{
 };
 
 #[test]
-fn descriptor_contains_single_adapter_service() {
+fn descriptor_contains_provider_contracts() {
     let descriptor = FileDescriptorSet::decode(FILE_DESCRIPTOR_SET).unwrap();
     let services = descriptor
         .file
@@ -56,6 +56,18 @@ fn descriptor_contains_single_adapter_service() {
     ] {
         assert!(!descriptor_text.contains(forbidden), "found {forbidden}");
     }
+
+    let bootstrap = descriptor
+        .file
+        .iter()
+        .find(|file| file.package.as_deref() == Some("trakkin.bootstrap.v1"))
+        .unwrap();
+    let messages = bootstrap
+        .message_type
+        .iter()
+        .filter_map(|message| message.name.as_deref())
+        .collect::<Vec<_>>();
+    assert_eq!(messages, ["LaunchRequest", "ReadyMessage"]);
 }
 
 #[test]
