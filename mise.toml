@@ -10,48 +10,63 @@ buf = "1.72.0"
 node = "26.7.0"
 rust = { version = "1.97.1", components = "rust-analyzer,rust-src,rustfmt,clippy" }
 
-[tasks.setup]
-description = "Fetch locked Rust dependencies"
-run = "cargo fetch --locked"
-
 [tasks.build]
 description = "Build every contract crate"
 run = "cargo build --locked --workspace --all-features"
 
 [tasks.format]
 description = "Format Rust and Protobuf sources"
-run = ["cargo fmt --all", "buf format -w"]
+run = [{ tasks = ["crates:format", "proto:format"] }]
 
-[tasks.lint]
-description = "Check formatting, lints, and protocol style"
+[tasks."crates:format"]
+description = "Format contract crate sources"
+run = "cargo fmt --all"
+
+[tasks."proto:format"]
+description = "Format Protobuf sources"
+run = "buf format -w"
+
+[tasks.check]
+description = "Check workflows, contract crates, and Protobuf sources"
+run = [{ tasks = ["workflows:check", "crates:check", "proto:check"] }]
+
+[tasks."workflows:check"]
+description = "Check GitHub Actions workflows"
+run = "actionlint"
+
+[tasks."crates:check"]
+description = "Check contract crate formatting and lints"
 run = [
-  "actionlint",
   "cargo fmt --all -- --check",
   "cargo clippy --locked --workspace --all-targets --all-features -- -D warnings",
-  "buf lint",
-  "buf format --diff --exit-code",
 ]
+
+[tasks."proto:check"]
+description = "Check Protobuf formatting and style"
+run = ["buf lint", "buf format --diff --exit-code"]
 
 [tasks.test]
 description = "Run every contract test"
 run = "cargo test --locked --workspace --all-features"
 
 [tasks.update]
-description = "Update tools and dependencies"
+description = "Update the toolchain, workflows, and contract dependencies"
 run = [
-  { task = "update:tools" },
+  { task = "toolchain:update" },
   { tasks = [
-    "update:actions",
-    "update:backend",
+    "workflows:update",
+    "crates:update",
   ] },
 ]
 
-[tasks."update:actions"]
+[tasks."workflows:update"]
 description = "Update and SHA-pin GitHub Actions dependencies"
 run = "actions-up --yes"
 
-[tasks."update:backend"]
+[tasks."crates:update"]
+description = "Update contract crate dependencies"
 run = "cargo upgrade --incompatible allow --pinned allow"
 
-[tasks."update:tools"]
+[tasks."toolchain:update"]
+description = "Update mise-managed tools"
 run = "mise upgrade --bump"

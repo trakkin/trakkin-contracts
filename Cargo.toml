@@ -1,8 +1,5 @@
 [workspace]
-members = [
-  "crates/trakkin-mapping",
-  "crates/trakkin-provider-sdk",
-]
+members = ["crates/trakkin-mapping", "crates/trakkin-provider-sdk"]
 resolver = "3"
 
 [workspace.package]

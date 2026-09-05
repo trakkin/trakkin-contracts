@@ -17,5 +17,5 @@ jobs:
         with:
           cache: true
           install: true
-      - run: mise run lint
+      - run: mise run check
       - run: mise run test
