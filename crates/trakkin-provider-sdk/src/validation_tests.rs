@@ -7,7 +7,8 @@ use crate::{
         DescribeConnectionResponse, DiscoverSourcesResponse, DiscoverSourcesResult,
         EndpointLookupCandidate, EndpointLookupCapability, EndpointLookupMatched, FieldProblem,
         HealthResponse, HealthStatus, Key, ListAuthenticationMethodsResponse, LookupAmbiguous,
-        LookupCandidate, LookupCapability, LookupEvidence, LookupPortableReferencesResponse,
+        LookupCandidate, LookupCapability, LookupEvidence, LookupMatched,
+        LookupPortableReferencesRequest, LookupPortableReferencesResponse,
         LookupPortableReferencesResult, OpenConnectionResponse, OpenConnectionResult,
         OperationFailure, OperationFailureCategory, PortableEndpoint, PortableEndpointResolution,
         PortableReference, PortableReferenceLookupResult, ProviderItem, ReadAssetResponse,
@@ -87,11 +88,13 @@ fn endpoint(value: &str, selector: &str) -> PortableEndpoint {
 }
 
 fn item(value: &str) -> ProviderItem {
+    let reference = reference(value);
     ProviderItem {
         key: Some(key(value)),
         kind: Some(term("movie")),
         display_name: value.to_owned(),
-        portable_references: vec![reference(value)],
+        portable_reference_candidates: vec![reference.clone()],
+        recommended_mapping_roots: vec![reference],
         ..ProviderItem::default()
     }
 }
@@ -576,6 +579,99 @@ fn ambiguous_lookup_requires_multiple_valid_candidates() {
 }
 
 #[test]
+fn lookup_candidates_require_consistent_reference_sets() {
+    let requested = reference("signal");
+    let candidate = |provider_item| LookupCandidate {
+        provider_item: Some(provider_item),
+        evidence: Some(LookupEvidence {
+            adapter_revision: b"lookup-1".to_vec(),
+            observed_time_milliseconds: 1_893_456_245_000,
+            expires_time_milliseconds: None,
+            matched_references: vec![requested.clone()],
+        }),
+    };
+    let response = |provider_item| LookupPortableReferencesResponse {
+        outcome: Some(lookup_portable_references_response::Outcome::Result(
+            LookupPortableReferencesResult {
+                results: vec![PortableReferenceLookupResult {
+                    requested: Some(requested.clone()),
+                    outcome: Some(portable_reference_lookup_result::Outcome::Matched(
+                        LookupMatched {
+                            candidate: Some(candidate(provider_item)),
+                        },
+                    )),
+                }],
+            },
+        )),
+    };
+
+    let mut candidate_only = item("signal");
+    candidate_only.recommended_mapping_roots.clear();
+    validation::lookup_response(std::slice::from_ref(&requested), &response(candidate_only))
+        .unwrap();
+
+    assert_eq!(
+        validation::lookup_response(std::slice::from_ref(&requested), &response(item("other"))),
+        Err(ValidationError::Invalid(
+            "lookup candidate requested reference"
+        ))
+    );
+
+    let mut duplicate_candidate = item("duplicate-candidate");
+    duplicate_candidate
+        .portable_reference_candidates
+        .push(reference("duplicate-candidate"));
+    assert_eq!(
+        validation::lookup_response(
+            std::slice::from_ref(&requested),
+            &response(duplicate_candidate)
+        ),
+        Err(ValidationError::Duplicate(
+            "provider item portable reference candidate"
+        ))
+    );
+
+    let mut duplicate_root = item("duplicate-root");
+    duplicate_root
+        .recommended_mapping_roots
+        .push(reference("duplicate-root"));
+    assert_eq!(
+        validation::lookup_response(std::slice::from_ref(&requested), &response(duplicate_root)),
+        Err(ValidationError::Duplicate(
+            "provider item recommended mapping root"
+        ))
+    );
+
+    let mut unknown_root = item("unknown-root");
+    unknown_root.recommended_mapping_roots = vec![reference("other")];
+    assert_eq!(
+        validation::lookup_response(std::slice::from_ref(&requested), &response(unknown_root)),
+        Err(ValidationError::Invalid(
+            "provider item recommended mapping root"
+        ))
+    );
+}
+
+#[test]
+fn portable_lookup_requests_require_source_identity() {
+    let request = LookupPortableReferencesRequest {
+        operation_id: b"lookup-1".to_vec(),
+        references: vec![reference("signal")],
+        source_key: Some(key("source-a")),
+    };
+    validation::lookup_request(&request).unwrap();
+
+    let mut missing_source = request;
+    missing_source.source_key = None;
+    assert_eq!(
+        validation::lookup_request(&missing_source),
+        Err(ValidationError::Missing(
+            "portable reference lookup source key"
+        ))
+    );
+}
+
+#[test]
 fn asset_validation_enforces_bound_content_type_length_and_hash() {
     let content = b"fixture-image".to_vec();
     let response = ReadAssetResponse {
@@ -659,6 +755,7 @@ fn protocol_one_validates_coordinate_backings_and_bounded_endpoint_lookup() {
         operation_id: b"endpoint-lookup-1".to_vec(),
         endpoints: vec![requested.clone()],
         maximum_response_bytes: 4096,
+        source_key: Some(key("source-a")),
     };
     validation::resolve_endpoints_request(&request).unwrap();
     let response = ResolvePortableEndpointsResponse {

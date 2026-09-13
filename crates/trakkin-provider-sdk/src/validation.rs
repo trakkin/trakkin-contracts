@@ -9,15 +9,16 @@ use crate::v1::{
     CancelOperationResponse, CatalogBatch, ContinueAuthenticationResponse, CoordinateBacking,
     CoordinateBinding, CoordinateBindingKey, DescribeConnectionResponse, DiscoverSourcesResponse,
     EndpointLookupCandidate, HealthResponse, HealthStatus, Key, ListAuthenticationMethodsResponse,
-    LookupCandidate, LookupPortableReferencesResponse, OpenConnectionResponse, OperationFailure,
-    OperationFailureCategory, PortableEndpoint, PortableReference, ProviderItem, ReadAssetResponse,
-    ReadCatalogRequest, ReadCatalogResponse, ReadCompleted, ReadFailed, ReadHeartbeat, ReadMode,
-    ReadStateRequest, ReadStateResponse, ReadTargetedStateRequest, ReadTargetedStateResponse,
-    ResolvePortableEndpointsRequest, ResolvePortableEndpointsResponse, RetryDisposition,
-    SourceCapabilities, SourceMembership, SourceSnapshot, StartAuthenticationResponse, StateBatch,
-    StateField, StateFieldDescriptor, StateFieldQuantizer, StatePresence, SubjectReference,
-    TargetedStateFieldEffectKind, TargetedStateMembershipEffect, TargetedStateReadCapability,
-    TargetedStateWriteCapability, TargetedStateWriteCertainty, TargetedStateWriteIdempotencyMode,
+    LookupCandidate, LookupPortableReferencesRequest, LookupPortableReferencesResponse,
+    OpenConnectionResponse, OperationFailure, OperationFailureCategory, PortableEndpoint,
+    PortableReference, ProviderItem, ReadAssetResponse, ReadCatalogRequest, ReadCatalogResponse,
+    ReadCompleted, ReadFailed, ReadHeartbeat, ReadMode, ReadStateRequest, ReadStateResponse,
+    ReadTargetedStateRequest, ReadTargetedStateResponse, ResolvePortableEndpointsRequest,
+    ResolvePortableEndpointsResponse, RetryDisposition, SourceCapabilities, SourceMembership,
+    SourceSnapshot, StartAuthenticationResponse, StateBatch, StateField, StateFieldDescriptor,
+    StateFieldQuantizer, StatePresence, SubjectReference, TargetedStateFieldEffectKind,
+    TargetedStateMembershipEffect, TargetedStateReadCapability, TargetedStateWriteCapability,
+    TargetedStateWriteCertainty, TargetedStateWriteIdempotencyMode,
     TargetedStateWritePreconditionMode, TargetedStateWriteRetryDisposition,
     TargetedStateWriteStatus, Term, ValidateConnectionResponse, WriteTargetedStateRequest,
     WriteTargetedStateResponse, cancel_authentication_response, cancel_operation_response,
@@ -667,6 +668,7 @@ pub fn lookup_response(
                         .candidate
                         .as_ref()
                         .ok_or(ValidationError::Missing("matched lookup candidate"))?,
+                    requested,
                 )?;
             }
             portable_reference_lookup_result::Outcome::NotFound(_)
@@ -676,9 +678,34 @@ pub fn lookup_response(
                     return Err(ValidationError::InsufficientCandidates);
                 }
                 for candidate in &ambiguous.candidates {
-                    validate_candidate(candidate)?;
+                    validate_candidate(candidate, requested)?;
                 }
             }
+        }
+    }
+    Ok(())
+}
+
+pub fn lookup_request(request: &LookupPortableReferencesRequest) -> Result<(), ValidationError> {
+    if request.operation_id.is_empty() {
+        return Err(ValidationError::Empty(
+            "portable reference lookup operation ID",
+        ));
+    }
+    key(
+        request.source_key.as_ref().ok_or(ValidationError::Missing(
+            "portable reference lookup source key",
+        ))?,
+        "portable reference lookup source key",
+    )?;
+    if request.references.is_empty() {
+        return Err(ValidationError::Empty("portable reference lookup request"));
+    }
+    let mut references = HashSet::new();
+    for reference in &request.references {
+        portable_reference(reference, "lookup request reference")?;
+        if !references.insert((reference.namespace.as_str(), reference.value.as_slice())) {
+            return Err(ValidationError::Duplicate("lookup request reference"));
         }
     }
     Ok(())
@@ -690,6 +717,13 @@ pub fn resolve_endpoints_request(
     if request.operation_id.is_empty() {
         return Err(ValidationError::Empty("endpoint resolution operation ID"));
     }
+    key(
+        request
+            .source_key
+            .as_ref()
+            .ok_or(ValidationError::Missing("endpoint resolution source key"))?,
+        "endpoint resolution source key",
+    )?;
     if request.endpoints.is_empty() {
         return Err(ValidationError::Empty("endpoint resolution request"));
     }
@@ -1416,19 +1450,53 @@ fn validate_provider_item(item: &ProviderItem) -> Result<(), ValidationError> {
         "provider item kind",
     )?;
     non_empty_text(&item.display_name, "provider item display name")?;
-    for reference in &item.portable_references {
-        portable_reference(reference, "provider item portable reference")?;
+    let candidates = unique_portable_references(
+        &item.portable_reference_candidates,
+        "provider item portable reference candidate",
+    )?;
+    let roots = unique_portable_references(
+        &item.recommended_mapping_roots,
+        "provider item recommended mapping root",
+    )?;
+    if !roots.is_subset(&candidates) {
+        return Err(ValidationError::Invalid(
+            "provider item recommended mapping root",
+        ));
     }
     Ok(())
 }
 
-fn validate_candidate(candidate: &LookupCandidate) -> Result<(), ValidationError> {
-    validate_provider_item(
-        candidate
-            .provider_item
-            .as_ref()
-            .ok_or(ValidationError::Missing("lookup provider item"))?,
-    )?;
+fn unique_portable_references<'a>(
+    references: &'a [PortableReference],
+    field: &'static str,
+) -> Result<HashSet<(&'a str, &'a [u8])>, ValidationError> {
+    let mut identities = HashSet::with_capacity(references.len());
+    for reference in references {
+        portable_reference(reference, field)?;
+        if !identities.insert((reference.namespace.as_str(), reference.value.as_slice())) {
+            return Err(ValidationError::Duplicate(field));
+        }
+    }
+    Ok(identities)
+}
+
+fn validate_candidate(
+    candidate: &LookupCandidate,
+    requested: &PortableReference,
+) -> Result<(), ValidationError> {
+    let provider_item = candidate
+        .provider_item
+        .as_ref()
+        .ok_or(ValidationError::Missing("lookup provider item"))?;
+    validate_provider_item(provider_item)?;
+    if !provider_item
+        .portable_reference_candidates
+        .contains(requested)
+    {
+        return Err(ValidationError::Invalid(
+            "lookup candidate requested reference",
+        ));
+    }
     let evidence = candidate
         .evidence
         .as_ref()
@@ -1438,6 +1506,12 @@ fn validate_candidate(candidate: &LookupCandidate) -> Result<(), ValidationError
     }
     for reference in &evidence.matched_references {
         portable_reference(reference, "lookup matched reference")?;
+        if !provider_item
+            .portable_reference_candidates
+            .contains(reference)
+        {
+            return Err(ValidationError::Invalid("lookup matched reference"));
+        }
     }
     Ok(())
 }

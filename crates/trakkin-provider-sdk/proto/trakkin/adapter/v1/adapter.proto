@@ -501,8 +501,9 @@ message ProviderItem {
   Term kind = 2;
   string display_name = 3;
   repeated Attribute attributes = 4;
-  repeated PortableReference portable_references = 5;
+  repeated PortableReference portable_reference_candidates = 5;
   repeated BinaryAssetReference assets = 6;
+  repeated PortableReference recommended_mapping_roots = 7;
 }
 
 message CatalogRelation {
@@ -790,6 +791,7 @@ message PortableReferenceLookupResult {
 message LookupPortableReferencesRequest {
   bytes operation_id = 1;
   repeated PortableReference references = 2;
+  Key source_key = 3;
 }
 
 message LookupPortableReferencesResult {
@@ -831,6 +833,7 @@ message ResolvePortableEndpointsRequest {
   bytes operation_id = 1;
   repeated PortableEndpoint endpoints = 2;
   uint64 maximum_response_bytes = 3;
+  Key source_key = 4;
 }
 
 message ResolvePortableEndpointsResult {
