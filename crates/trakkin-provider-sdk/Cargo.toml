@@ -25,7 +25,11 @@ tokio-stream = { version = "0.1.18", features = ["net"] }
 tonic = "0.14.6"
 tonic-prost = "0.14.6"
 tracing = "0.1.44"
-tracing-subscriber = { version = "0.3.22", features = ["env-filter", "json"] }
+tracing-subscriber = { version = "0.3.22", default-features = false, features = [
+  "fmt",
+  "json",
+  "tracing-log",
+] }
 trakkin-mapping = { path = "../trakkin-mapping", version = "0.0.0" }
 
 [build-dependencies]
