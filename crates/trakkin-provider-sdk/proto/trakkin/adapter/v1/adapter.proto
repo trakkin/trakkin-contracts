@@ -117,7 +117,6 @@ message OperationFailure {
   string safe_message = 3;
   RetryAdvice retry = 4;
   repeated FieldProblem field_problems = 5;
-  string diagnostic_id = 6;
 }
 
 message HandshakeRequest {
@@ -330,7 +329,6 @@ message EndpointLookupCapability {
 message ConnectionCapabilities {
   LookupCapability reference_lookup = 1;
   EndpointLookupCapability endpoint_lookup = 2;
-  reserved 10 to 19;
 }
 
 message OpenConnectionRequest {
@@ -357,15 +355,6 @@ message RatingScale {
   string step = 3;
 }
 
-message StateFieldDescriptor {
-  Term field = 1;
-  Term unit = 2;
-  ConfigurationValueKind value_kind = 3;
-  RatingScale rating_scale = 4;
-  StateFieldNumericRange numeric_range = 5;
-  StateFieldQuantizer quantizer = 6;
-}
-
 message StateFieldNumericRange {
   string minimum = 1;
   string maximum = 2;
@@ -380,6 +369,20 @@ enum StateFieldQuantizer {
   STATE_FIELD_QUANTIZER_CEILING = 4;
 }
 
+message StateField {
+  Term field = 1;
+  Term unit = 2;
+}
+
+message StateFieldDescriptor {
+  Term field = 1;
+  Term unit = 2;
+  ConfigurationValueKind value_kind = 3;
+  RatingScale rating_scale = 4;
+  StateFieldNumericRange numeric_range = 5;
+  StateFieldQuantizer quantizer = 6;
+}
+
 message AssetCapability {
   uint64 maximum_bytes = 1;
   repeated string content_types = 2;
@@ -387,17 +390,6 @@ message AssetCapability {
 
 message CoordinateCapability {
   repeated string coordinate_ids = 1;
-}
-
-message SourceCapabilities {
-  ReadCapability catalog = 1;
-  ReadCapability state = 2;
-  repeated StateFieldDescriptor state_fields = 3;
-  AssetCapability assets = 4;
-  CoordinateCapability coordinates = 5;
-  TargetedStateReadCapability targeted_state_read = 6;
-  TargetedStateWriteCapability targeted_state_write = 7;
-  reserved 10 to 19;
 }
 
 message TargetedStateReadCapability {
@@ -432,6 +424,16 @@ message TargetedStateWriteCapability {
   uint64 maximum_request_bytes = 6;
   uint64 maximum_response_bytes = 7;
   uint64 maximum_receipt_bytes = 8;
+}
+
+message SourceCapabilities {
+  ReadCapability catalog = 1;
+  ReadCapability state = 2;
+  repeated StateFieldDescriptor state_fields = 3;
+  AssetCapability assets = 4;
+  CoordinateCapability coordinates = 5;
+  TargetedStateReadCapability targeted_state_read = 6;
+  TargetedStateWriteCapability targeted_state_write = 7;
 }
 
 enum SourceAvailability {
@@ -478,14 +480,6 @@ message ReadCatalogRequest {
   uint32 preferred_batch_size = 5;
 }
 
-message ReadStateRequest {
-  bytes operation_id = 1;
-  Key source_key = 2;
-  ReadMode mode = 3;
-  bytes prior_cursor = 4;
-  uint32 preferred_batch_size = 5;
-}
-
 message ReadHeartbeat {
   bytes operation_id = 1;
   uint64 records_emitted = 2;
@@ -513,6 +507,32 @@ message CatalogRelation {
   Term kind = 4;
   repeated sint64 order = 5;
   repeated Attribute attributes = 6;
+}
+
+message SubjectReference {
+  oneof subject {
+    Key provider_item_key = 1;
+    Key catalog_relation_key = 2;
+  }
+}
+
+enum CoordinateBacking {
+  COORDINATE_BACKING_UNSPECIFIED = 0;
+  COORDINATE_BACKING_MATERIALIZED = 1;
+  COORDINATE_BACKING_VIRTUAL = 2;
+  COORDINATE_BACKING_AGGREGATE = 3;
+}
+
+message CoordinateBindingKey {
+  PortableEndpoint endpoint = 1;
+  SubjectReference subject = 2;
+}
+
+message CoordinateBinding {
+  PortableEndpoint endpoint = 1;
+  SubjectReference subject = 2;
+  CoordinateBacking backing = 3;
+  bytes evidence_revision = 4;
 }
 
 message CatalogBatch {
@@ -547,35 +567,12 @@ message ReadCatalogResponse {
   }
 }
 
-message SubjectReference {
-  oneof subject {
-    Key provider_item_key = 1;
-    Key catalog_relation_key = 2;
-  }
-}
-
-enum CoordinateBacking {
-  COORDINATE_BACKING_UNSPECIFIED = 0;
-  COORDINATE_BACKING_MATERIALIZED = 1;
-  COORDINATE_BACKING_VIRTUAL = 2;
-  COORDINATE_BACKING_AGGREGATE = 3;
-}
-
-message CoordinateBindingKey {
-  PortableEndpoint endpoint = 1;
-  SubjectReference subject = 2;
-}
-
-message CoordinateBinding {
-  PortableEndpoint endpoint = 1;
-  SubjectReference subject = 2;
-  CoordinateBacking backing = 3;
-  bytes evidence_revision = 4;
-}
-
-message StateField {
-  Term field = 1;
-  Term unit = 2;
+message ReadStateRequest {
+  bytes operation_id = 1;
+  Key source_key = 2;
+  ReadMode mode = 3;
+  bytes prior_cursor = 4;
+  uint32 preferred_batch_size = 5;
 }
 
 message StateDeletion {}
@@ -790,8 +787,8 @@ message PortableReferenceLookupResult {
 
 message LookupPortableReferencesRequest {
   bytes operation_id = 1;
-  repeated PortableReference references = 2;
-  Key source_key = 3;
+  Key source_key = 2;
+  repeated PortableReference references = 3;
 }
 
 message LookupPortableReferencesResult {
@@ -831,9 +828,9 @@ message PortableEndpointResolution {
 
 message ResolvePortableEndpointsRequest {
   bytes operation_id = 1;
-  repeated PortableEndpoint endpoints = 2;
-  uint64 maximum_response_bytes = 3;
-  Key source_key = 4;
+  Key source_key = 2;
+  repeated PortableEndpoint endpoints = 3;
+  uint64 maximum_response_bytes = 4;
 }
 
 message ResolvePortableEndpointsResult {

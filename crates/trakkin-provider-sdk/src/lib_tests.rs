@@ -18,6 +18,34 @@ fn descriptor_contains_provider_contracts() {
     assert_eq!(services.len(), 1);
     assert_eq!(services[0].name.as_deref(), Some("AdapterService"));
 
+    let adapter = descriptor
+        .file
+        .iter()
+        .find(|file| file.package.as_deref() == Some("trakkin.adapter.v1"))
+        .unwrap();
+    for message in &adapter.message_type {
+        let field_numbers = message
+            .field
+            .iter()
+            .map(|field| field.number.unwrap())
+            .collect::<Vec<_>>();
+        let expected = (1..=field_numbers.len() as i32).collect::<Vec<_>>();
+        assert_eq!(field_numbers, expected, "{:?} field tags", message.name);
+    }
+    for enumeration in &adapter.enum_type {
+        let value_numbers = enumeration
+            .value
+            .iter()
+            .map(|value| value.number.unwrap())
+            .collect::<Vec<_>>();
+        let expected = (0..value_numbers.len() as i32).collect::<Vec<_>>();
+        assert_eq!(
+            value_numbers, expected,
+            "{:?} enum values",
+            enumeration.name
+        );
+    }
+
     let methods = services[0]
         .method
         .iter()

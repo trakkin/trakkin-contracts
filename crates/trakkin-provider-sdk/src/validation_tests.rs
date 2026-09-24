@@ -13,7 +13,7 @@ use crate::{
         OperationFailure, OperationFailureCategory, PortableEndpoint, PortableEndpointResolution,
         PortableReference, PortableReferenceLookupResult, ProviderItem, ReadAssetResponse,
         ReadAssetResult, ReadCancelled, ReadCatalogRequest, ReadCatalogResponse, ReadCompleted,
-        ReadMode, ReadStateRequest, ReadStateResponse, ReadTargetedStateRequest,
+        ReadHeartbeat, ReadMode, ReadStateRequest, ReadStateResponse, ReadTargetedStateRequest,
         ReadTargetedStateResponse, ResolvePortableEndpointsRequest,
         ResolvePortableEndpointsResponse, ResolvePortableEndpointsResult, RetryAdvice,
         RetryDisposition, SourceAvailability, SourceCapabilities, SourceMembership, SourceSnapshot,
@@ -55,7 +55,6 @@ fn operation_failure(code: &str, safe_message: &str, retryable: bool) -> Operati
             },
             after: None,
         }),
-        diagnostic_id: format!("fixture:{code}"),
         ..OperationFailure::default()
     }
 }
@@ -153,6 +152,14 @@ fn source_capabilities_require_complete_numeric_translation_metadata() {
 #[test]
 fn catalog_stream_requires_contiguous_batches_and_one_terminal_event() {
     let mut validator = CatalogStreamValidator::default();
+    validator
+        .accept(&ReadCatalogResponse {
+            event: Some(read_catalog_response::Event::Heartbeat(ReadHeartbeat {
+                operation_id: b"catalog-read-1".to_vec(),
+                records_emitted: 0,
+            })),
+        })
+        .unwrap();
     validator
         .accept(&ReadCatalogResponse {
             event: Some(read_catalog_response::Event::Batch(CatalogBatch {
@@ -462,17 +469,18 @@ fn status_coupled_errors_and_cancellation_outcomes_are_validated() {
         HealthStatus::NotReady,
     ] {
         let expects_error = status != HealthStatus::Ready;
-        let response = HealthResponse {
+        validation::health_response(&HealthResponse {
             status: status as i32,
             error: expects_error.then(|| error.clone()),
-        };
-        validation::health_response(&response).unwrap();
-
-        let contradictory = HealthResponse {
-            status: status as i32,
-            error: (!expects_error).then(|| error.clone()),
-        };
-        assert!(validation::health_response(&contradictory).is_err());
+        })
+        .unwrap();
+        assert!(
+            validation::health_response(&HealthResponse {
+                status: status as i32,
+                error: (!expects_error).then(|| error.clone()),
+            })
+            .is_err()
+        );
     }
 
     for status in [

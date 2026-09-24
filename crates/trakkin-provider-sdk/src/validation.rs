@@ -176,15 +176,6 @@ pub fn adapter_error(error: &OperationFailure) -> Result<(), ValidationError> {
         non_empty_text(&problem.code, "field problem code")?;
         non_empty_text(&problem.message, "field problem message")?;
     }
-    non_empty_text(&error.diagnostic_id, "operation failure diagnostic ID")?;
-    if error.diagnostic_id.len() > 128
-        || !error
-            .diagnostic_id
-            .bytes()
-            .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'-' | b'_' | b'.' | b':'))
-    {
-        return Err(ValidationError::Invalid("operation failure diagnostic ID"));
-    }
     Ok(())
 }
 
