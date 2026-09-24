@@ -188,6 +188,13 @@ where
     drop(ready_writer);
 
     Server::builder()
+        .trace_fn(|request| {
+            tracing::info_span!(
+                "provider.rpc",
+                rpc_system = "grpc",
+                rpc_method = %request.uri().path()
+            )
+        })
         .add_service(AdapterServiceServer::with_interceptor(
             adapter,
             token.interceptor(),
