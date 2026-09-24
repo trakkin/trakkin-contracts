@@ -22,6 +22,7 @@ use tonic::{
 
 pub const BOOTSTRAP_VERSION: u32 = 1;
 pub const LAUNCH_TOKEN_HEADER: &str = "x-trakkin-launch-token";
+const ADAPTER_SERVICE_PATH_PREFIX: &str = "/trakkin.adapter.v1.AdapterService/";
 pub use crate::bootstrap_v1::{LaunchRequest, ReadyMessage};
 
 impl LaunchRequest {
@@ -163,6 +164,12 @@ pub fn supported_protocol_range() -> ProtocolRange {
     }
 }
 
+fn rpc_method(path: &str) -> &str {
+    path.strip_prefix(ADAPTER_SERVICE_PATH_PREFIX)
+        .filter(|method| !method.is_empty() && !method.contains('/'))
+        .unwrap_or("Unknown")
+}
+
 pub async fn serve_adapter<T, F, W>(
     launch: &LaunchRequest,
     adapter: T,
@@ -191,8 +198,9 @@ where
         .trace_fn(|request| {
             tracing::info_span!(
                 "provider.rpc",
-                rpc_system = "grpc",
-                rpc_method = %request.uri().path()
+                rpc.system = "grpc",
+                rpc.service = "trakkin.adapter.v1.AdapterService",
+                rpc.method = rpc_method(request.uri().path())
             )
         })
         .add_service(AdapterServiceServer::with_interceptor(
@@ -228,8 +236,9 @@ mod tests {
     use tonic::{Code, Request, service::Interceptor};
 
     use super::{
-        BOOTSTRAP_VERSION, LAUNCH_TOKEN_HEADER, LaunchRequest, LaunchToken, ReadyMessage,
-        read_launch_request, supported_protocol_range, write_ready_message,
+        ADAPTER_SERVICE_PATH_PREFIX, BOOTSTRAP_VERSION, LAUNCH_TOKEN_HEADER, LaunchRequest,
+        LaunchToken, ReadyMessage, read_launch_request, rpc_method, supported_protocol_range,
+        write_ready_message,
     };
 
     fn launch() -> LaunchRequest {
@@ -290,5 +299,23 @@ mod tests {
         let range = supported_protocol_range();
         assert_eq!(range.minimum, Some(crate::current_protocol_version()));
         assert_eq!(range.maximum, Some(crate::current_protocol_version()));
+    }
+
+    #[test]
+    fn rpc_method_is_scoped_to_the_adapter_service() {
+        assert_eq!(
+            rpc_method("/trakkin.adapter.v1.AdapterService/ReadCatalog"),
+            "ReadCatalog"
+        );
+        assert_eq!(
+            rpc_method("/trakkin.adapter.v1.AdapterService/FutureMethod"),
+            "FutureMethod"
+        );
+        assert_eq!(rpc_method("/arbitrary/service/secret-value"), "Unknown");
+        assert_eq!(
+            rpc_method("/trakkin.adapter.v1.AdapterService/Nested/Method"),
+            "Unknown"
+        );
+        assert_eq!(rpc_method(ADAPTER_SERVICE_PATH_PREFIX), "Unknown");
     }
 }
