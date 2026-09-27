@@ -2,32 +2,27 @@ use std::collections::HashSet;
 
 use prost::Message;
 use sha2::{Digest, Sha256};
-use trakkin_mapping::PortableEndpoint as MappingEndpoint;
 
 use crate::v1::{
     AccountSnapshot, AuthenticationProgress, AuthenticationStatus, CancelAuthenticationResponse,
-    CancelOperationResponse, CatalogBatch, ContinueAuthenticationResponse, CoordinateBacking,
-    CoordinateBinding, CoordinateBindingKey, DescribeConnectionResponse, DiscoverSourcesResponse,
-    EndpointLookupCandidate, HealthResponse, HealthStatus, Key, ListAuthenticationMethodsResponse,
-    LookupCandidate, LookupPortableReferencesRequest, LookupPortableReferencesResponse,
-    OpenConnectionResponse, OperationFailure, OperationFailureCategory, PortableEndpoint,
-    PortableReference, ProviderItem, ReadAssetResponse, ReadCatalogRequest, ReadCatalogResponse,
-    ReadCompleted, ReadFailed, ReadHeartbeat, ReadMode, ReadStateRequest, ReadStateResponse,
-    ReadTargetedStateRequest, ReadTargetedStateResponse, ResolvePortableEndpointsRequest,
-    ResolvePortableEndpointsResponse, RetryDisposition, SourceCapabilities, SourceMembership,
-    SourceSnapshot, StartAuthenticationResponse, StateBatch, StateField, StateFieldDescriptor,
-    StateFieldQuantizer, StatePresence, SubjectReference, TargetedStateFieldEffectKind,
-    TargetedStateMembershipEffect, TargetedStateReadCapability, TargetedStateWriteCapability,
-    TargetedStateWriteCertainty, TargetedStateWriteIdempotencyMode,
+    CancelOperationResponse, CatalogBatch, ContinueAuthenticationResponse,
+    DescribeConnectionResponse, DiscoverSourcesResponse, HealthResponse, HealthStatus, Key,
+    ListAuthenticationMethodsResponse, OpenConnectionResponse, OperationFailure,
+    OperationFailureCategory, ProviderItem, ReadAssetResponse, ReadCatalogRequest,
+    ReadCatalogResponse, ReadCompleted, ReadFailed, ReadHeartbeat, ReadMode, ReadStateRequest,
+    ReadStateResponse, ReadTargetedStateRequest, ReadTargetedStateResponse, RetryDisposition,
+    SourceCapabilities, SourceMembership, SourceSnapshot, StartAuthenticationResponse, StateBatch,
+    StateField, StateFieldDescriptor, StateFieldQuantizer, StatePresence, SubjectReference,
+    TargetedStateFieldEffectKind, TargetedStateMembershipEffect, TargetedStateReadCapability,
+    TargetedStateWriteCapability, TargetedStateWriteCertainty, TargetedStateWriteIdempotencyMode,
     TargetedStateWritePreconditionMode, TargetedStateWriteRetryDisposition,
     TargetedStateWriteStatus, Term, ValidateConnectionResponse, WriteTargetedStateRequest,
     WriteTargetedStateResponse, cancel_authentication_response, cancel_operation_response,
     continue_authentication_response, describe_connection_response, discover_sources_response,
-    list_authentication_methods_response, lookup_portable_references_response,
-    open_connection_response, portable_endpoint_resolution, portable_reference_lookup_result,
-    read_asset_response, read_catalog_response, read_state_response, read_targeted_state_response,
-    resolve_portable_endpoints_response, start_authentication_response, subject_reference,
-    targeted_state_write_intent, validate_connection_response,
+    list_authentication_methods_response, open_connection_response, read_asset_response,
+    read_catalog_response, read_state_response, read_targeted_state_response,
+    start_authentication_response, subject_reference, targeted_state_write_intent,
+    validate_connection_response,
 };
 
 #[derive(Clone, Debug, Eq, PartialEq, thiserror::Error)]
@@ -44,16 +39,6 @@ pub enum ValidationError {
     EventAfterTerminal,
     #[error("stream ended without a terminal event")]
     MissingTerminal,
-    #[error("lookup result count does not match the request")]
-    LookupResultCount,
-    #[error("lookup result does not match its requested reference")]
-    LookupReferenceMismatch,
-    #[error("endpoint result count does not match the request")]
-    EndpointResultCount,
-    #[error("endpoint result does not match its requested endpoint")]
-    EndpointMismatch,
-    #[error("endpoint response length {actual} exceeds maximum {maximum}")]
-    EndpointResponseTooLarge { actual: usize, maximum: u64 },
     #[error("targeted state field count does not match the request")]
     TargetedStateFieldCount,
     #[error("targeted state field does not match its requested field")]
@@ -70,7 +55,7 @@ pub enum ValidationError {
     TargetedStateWriteResponseTooLarge { actual: usize, maximum: u64 },
     #[error("targeted state write receipt length {actual} exceeds maximum {maximum}")]
     TargetedStateWriteReceiptTooLarge { actual: usize, maximum: u64 },
-    #[error("ambiguous lookup must return at least two candidates")]
+    #[error("ambiguous result must return at least two candidates")]
     InsufficientCandidates,
     #[error("adapter error response contains successful payload data")]
     ErrorWithPayload,
@@ -99,43 +84,6 @@ pub fn key(key: &Key, field: &'static str) -> Result<(), ValidationError> {
 pub fn term(term: &Term, field: &'static str) -> Result<(), ValidationError> {
     non_empty_text(&term.namespace, field)?;
     non_empty_text(&term.name, field)
-}
-
-pub fn portable_reference(
-    reference: &PortableReference,
-    field: &'static str,
-) -> Result<(), ValidationError> {
-    non_empty_text(&reference.namespace, field)?;
-    if reference.value.is_empty() {
-        return Err(ValidationError::Empty(field));
-    }
-    MappingEndpoint::from_parts(&reference.namespace, &reference.value, None)
-        .map_err(|_| ValidationError::Invalid(field))?;
-    Ok(())
-}
-
-pub fn portable_endpoint(
-    endpoint: &PortableEndpoint,
-    field: &'static str,
-) -> Result<(), ValidationError> {
-    let reference = endpoint
-        .reference
-        .as_ref()
-        .ok_or(ValidationError::Missing(field))?;
-    portable_reference(reference, field)?;
-    if endpoint.selector.is_empty() {
-        return Err(ValidationError::Empty(field));
-    }
-    let parsed = MappingEndpoint::from_parts(
-        &reference.namespace,
-        &reference.value,
-        Some(&endpoint.selector),
-    )
-    .map_err(|_| ValidationError::Invalid(field))?;
-    if parsed.selector().map(|selector| selector.as_str()) != Some(endpoint.selector.as_str()) {
-        return Err(ValidationError::Invalid(field));
-    }
-    Ok(())
 }
 
 pub fn adapter_error(error: &OperationFailure) -> Result<(), ValidationError> {
@@ -272,9 +220,6 @@ pub fn source_capabilities(capabilities: &SourceCapabilities) -> Result<(), Vali
                 return Err(ValidationError::Duplicate("asset content type"));
             }
         }
-    }
-    if let Some(coordinates) = &capabilities.coordinates {
-        validate_coordinate_ids(&coordinates.coordinate_ids, "source coordinate ID")?;
     }
     if let Some(targeted) = &capabilities.targeted_state_read {
         targeted_state_read_capability(targeted)?;
@@ -420,36 +365,6 @@ pub fn open_connection_response(response: &OpenConnectionResponse) -> Result<(),
         if !account_keys.insert(account.key.as_ref().expect("validated key")) {
             return Err(ValidationError::Duplicate("account key"));
         }
-    }
-    if let Some(capabilities) = &result.capabilities
-        && let Some(lookup) = &capabilities.reference_lookup
-    {
-        if lookup.maximum_batch_size == 0 || lookup.reference_namespaces.is_empty() {
-            return Err(ValidationError::Invalid("lookup capability"));
-        }
-        let mut namespaces = HashSet::new();
-        for namespace in &lookup.reference_namespaces {
-            non_empty_text(namespace, "lookup reference namespace")?;
-            if !namespaces.insert(namespace) {
-                return Err(ValidationError::Duplicate("lookup reference namespace"));
-            }
-        }
-    }
-    if let Some(capabilities) = &result.capabilities
-        && let Some(lookup) = &capabilities.endpoint_lookup
-    {
-        if lookup.maximum_batch_size == 0
-            || lookup.maximum_response_bytes == 0
-            || lookup.reference_namespaces.is_empty()
-            || lookup.coordinate_ids.is_empty()
-        {
-            return Err(ValidationError::Invalid("endpoint lookup capability"));
-        }
-        validate_unique_text(
-            &lookup.reference_namespaces,
-            "endpoint lookup reference namespace",
-        )?;
-        validate_coordinate_ids(&lookup.coordinate_ids, "endpoint lookup coordinate ID")?;
     }
     Ok(())
 }
@@ -618,182 +533,6 @@ impl StateStreamValidator {
             Err(ValidationError::MissingTerminal)
         }
     }
-}
-
-pub fn lookup_response(
-    request: &[PortableReference],
-    response: &LookupPortableReferencesResponse,
-) -> Result<(), ValidationError> {
-    let result = match response.outcome.as_ref() {
-        Some(lookup_portable_references_response::Outcome::Result(result)) => result,
-        Some(lookup_portable_references_response::Outcome::Error(error)) => {
-            return adapter_error(error);
-        }
-        None => {
-            return Err(ValidationError::Missing(
-                "portable reference lookup outcome",
-            ));
-        }
-    };
-    if request.len() != result.results.len() {
-        return Err(ValidationError::LookupResultCount);
-    }
-    for (requested, result) in request.iter().zip(&result.results) {
-        portable_reference(requested, "lookup request reference")?;
-        let echoed = result
-            .requested
-            .as_ref()
-            .ok_or(ValidationError::Missing("lookup result reference"))?;
-        portable_reference(echoed, "lookup result reference")?;
-        if echoed != requested {
-            return Err(ValidationError::LookupReferenceMismatch);
-        }
-        match result
-            .outcome
-            .as_ref()
-            .ok_or(ValidationError::Missing("lookup outcome"))?
-        {
-            portable_reference_lookup_result::Outcome::Matched(matched) => {
-                validate_candidate(
-                    matched
-                        .candidate
-                        .as_ref()
-                        .ok_or(ValidationError::Missing("matched lookup candidate"))?,
-                    requested,
-                )?;
-            }
-            portable_reference_lookup_result::Outcome::NotFound(_)
-            | portable_reference_lookup_result::Outcome::Unsupported(_) => {}
-            portable_reference_lookup_result::Outcome::Ambiguous(ambiguous) => {
-                if ambiguous.candidates.len() < 2 {
-                    return Err(ValidationError::InsufficientCandidates);
-                }
-                for candidate in &ambiguous.candidates {
-                    validate_candidate(candidate, requested)?;
-                }
-            }
-        }
-    }
-    Ok(())
-}
-
-pub fn lookup_request(request: &LookupPortableReferencesRequest) -> Result<(), ValidationError> {
-    if request.operation_id.is_empty() {
-        return Err(ValidationError::Empty(
-            "portable reference lookup operation ID",
-        ));
-    }
-    key(
-        request.source_key.as_ref().ok_or(ValidationError::Missing(
-            "portable reference lookup source key",
-        ))?,
-        "portable reference lookup source key",
-    )?;
-    if request.references.is_empty() {
-        return Err(ValidationError::Empty("portable reference lookup request"));
-    }
-    let mut references = HashSet::new();
-    for reference in &request.references {
-        portable_reference(reference, "lookup request reference")?;
-        if !references.insert((reference.namespace.as_str(), reference.value.as_slice())) {
-            return Err(ValidationError::Duplicate("lookup request reference"));
-        }
-    }
-    Ok(())
-}
-
-pub fn resolve_endpoints_request(
-    request: &ResolvePortableEndpointsRequest,
-) -> Result<(), ValidationError> {
-    if request.operation_id.is_empty() {
-        return Err(ValidationError::Empty("endpoint resolution operation ID"));
-    }
-    key(
-        request
-            .source_key
-            .as_ref()
-            .ok_or(ValidationError::Missing("endpoint resolution source key"))?,
-        "endpoint resolution source key",
-    )?;
-    if request.endpoints.is_empty() {
-        return Err(ValidationError::Empty("endpoint resolution request"));
-    }
-    if request.maximum_response_bytes == 0 {
-        return Err(ValidationError::Invalid(
-            "endpoint resolution maximum response bytes",
-        ));
-    }
-    let mut endpoints = HashSet::new();
-    for endpoint in &request.endpoints {
-        portable_endpoint(endpoint, "endpoint resolution request endpoint")?;
-        if !endpoints.insert(endpoint) {
-            return Err(ValidationError::Duplicate(
-                "endpoint resolution request endpoint",
-            ));
-        }
-    }
-    Ok(())
-}
-
-pub fn resolve_endpoints_response(
-    request: &[PortableEndpoint],
-    response: &ResolvePortableEndpointsResponse,
-    maximum_response_bytes: u64,
-) -> Result<(), ValidationError> {
-    let encoded_length = response.encoded_len();
-    if encoded_length as u64 > maximum_response_bytes {
-        return Err(ValidationError::EndpointResponseTooLarge {
-            actual: encoded_length,
-            maximum: maximum_response_bytes,
-        });
-    }
-    let result = match response.outcome.as_ref() {
-        Some(resolve_portable_endpoints_response::Outcome::Result(result)) => result,
-        Some(resolve_portable_endpoints_response::Outcome::Error(error)) => {
-            return adapter_error(error);
-        }
-        None => return Err(ValidationError::Missing("endpoint resolution outcome")),
-    };
-    if request.len() != result.results.len() {
-        return Err(ValidationError::EndpointResultCount);
-    }
-    for (requested, result) in request.iter().zip(&result.results) {
-        portable_endpoint(requested, "requested endpoint")?;
-        let echoed = result
-            .requested
-            .as_ref()
-            .ok_or(ValidationError::Missing("endpoint result request"))?;
-        portable_endpoint(echoed, "endpoint result request")?;
-        if echoed != requested {
-            return Err(ValidationError::EndpointMismatch);
-        }
-        match result
-            .outcome
-            .as_ref()
-            .ok_or(ValidationError::Missing("endpoint resolution outcome"))?
-        {
-            portable_endpoint_resolution::Outcome::Matched(matched) => {
-                validate_endpoint_candidate(
-                    matched
-                        .candidate
-                        .as_ref()
-                        .ok_or(ValidationError::Missing("matched endpoint candidate"))?,
-                    requested,
-                )?;
-            }
-            portable_endpoint_resolution::Outcome::NotFound(_)
-            | portable_endpoint_resolution::Outcome::Unsupported(_) => {}
-            portable_endpoint_resolution::Outcome::Ambiguous(ambiguous) => {
-                if ambiguous.candidates.len() < 2 {
-                    return Err(ValidationError::InsufficientCandidates);
-                }
-                for candidate in &ambiguous.candidates {
-                    validate_endpoint_candidate(candidate, requested)?;
-                }
-            }
-        }
-    }
-    Ok(())
 }
 
 pub fn targeted_state_read_request(
@@ -1360,12 +1099,6 @@ fn validate_catalog_batch(batch: &CatalogBatch, expected: u64) -> Result<(), Val
     for deleted in &batch.relation_deletes {
         key(deleted, "deleted catalog relation key")?;
     }
-    for binding in &batch.coordinate_binding_upserts {
-        validate_coordinate_binding(binding)?;
-    }
-    for binding in &batch.coordinate_binding_deletes {
-        validate_coordinate_binding_key(binding)?;
-    }
     Ok(())
 }
 
@@ -1441,157 +1174,22 @@ fn validate_provider_item(item: &ProviderItem) -> Result<(), ValidationError> {
         "provider item kind",
     )?;
     non_empty_text(&item.display_name, "provider item display name")?;
-    let candidates = unique_portable_references(
-        &item.portable_reference_candidates,
-        "provider item portable reference candidate",
-    )?;
-    let roots = unique_portable_references(
-        &item.recommended_mapping_roots,
-        "provider item recommended mapping root",
-    )?;
-    if !roots.is_subset(&candidates) {
-        return Err(ValidationError::Invalid(
-            "provider item recommended mapping root",
-        ));
-    }
     Ok(())
-}
-
-fn unique_portable_references<'a>(
-    references: &'a [PortableReference],
-    field: &'static str,
-) -> Result<HashSet<(&'a str, &'a [u8])>, ValidationError> {
-    let mut identities = HashSet::with_capacity(references.len());
-    for reference in references {
-        portable_reference(reference, field)?;
-        if !identities.insert((reference.namespace.as_str(), reference.value.as_slice())) {
-            return Err(ValidationError::Duplicate(field));
-        }
-    }
-    Ok(identities)
-}
-
-fn validate_candidate(
-    candidate: &LookupCandidate,
-    requested: &PortableReference,
-) -> Result<(), ValidationError> {
-    let provider_item = candidate
-        .provider_item
-        .as_ref()
-        .ok_or(ValidationError::Missing("lookup provider item"))?;
-    validate_provider_item(provider_item)?;
-    if !provider_item
-        .portable_reference_candidates
-        .contains(requested)
-    {
-        return Err(ValidationError::Invalid(
-            "lookup candidate requested reference",
-        ));
-    }
-    let evidence = candidate
-        .evidence
-        .as_ref()
-        .ok_or(ValidationError::Missing("lookup evidence"))?;
-    if evidence.adapter_revision.is_empty() {
-        return Err(ValidationError::Empty("lookup adapter revision"));
-    }
-    for reference in &evidence.matched_references {
-        portable_reference(reference, "lookup matched reference")?;
-        if !provider_item
-            .portable_reference_candidates
-            .contains(reference)
-        {
-            return Err(ValidationError::Invalid("lookup matched reference"));
-        }
-    }
-    Ok(())
-}
-
-fn validate_endpoint_candidate(
-    candidate: &EndpointLookupCandidate,
-    requested: &PortableEndpoint,
-) -> Result<(), ValidationError> {
-    validate_provider_item(
-        candidate
-            .provider_item
-            .as_ref()
-            .ok_or(ValidationError::Missing("endpoint lookup provider item"))?,
-    )?;
-    let binding = candidate
-        .binding
-        .as_ref()
-        .ok_or(ValidationError::Missing("endpoint lookup binding"))?;
-    validate_coordinate_binding(binding)?;
-    if binding.endpoint.as_ref() != Some(requested) {
-        return Err(ValidationError::EndpointMismatch);
-    }
-    validate_lookup_evidence(
-        candidate
-            .evidence
-            .as_ref()
-            .ok_or(ValidationError::Missing("endpoint lookup evidence"))?,
-    )
-}
-
-fn validate_coordinate_binding(binding: &CoordinateBinding) -> Result<(), ValidationError> {
-    validate_coordinate_binding_key(&CoordinateBindingKey {
-        endpoint: binding.endpoint.clone(),
-        subject: binding.subject.clone(),
-    })?;
-    let backing = CoordinateBacking::try_from(binding.backing)
-        .map_err(|_| ValidationError::Invalid("coordinate backing"))?;
-    if backing == CoordinateBacking::Unspecified {
-        return Err(ValidationError::Invalid("coordinate backing"));
-    }
-    if binding.evidence_revision.is_empty() {
-        return Err(ValidationError::Empty("coordinate evidence revision"));
-    }
-    Ok(())
-}
-
-fn validate_coordinate_binding_key(binding: &CoordinateBindingKey) -> Result<(), ValidationError> {
-    portable_endpoint(
-        binding
-            .endpoint
-            .as_ref()
-            .ok_or(ValidationError::Missing("coordinate binding endpoint"))?,
-        "coordinate binding endpoint",
-    )?;
-    validate_subject(
-        binding
-            .subject
-            .as_ref()
-            .ok_or(ValidationError::Missing("coordinate binding subject"))?,
-    )
 }
 
 fn validate_subject(subject: &SubjectReference) -> Result<(), ValidationError> {
-    match subject.subject.as_ref().ok_or(ValidationError::Missing(
-        "coordinate binding subject reference",
-    ))? {
+    match subject
+        .subject
+        .as_ref()
+        .ok_or(ValidationError::Missing("subject reference"))?
+    {
         subject_reference::Subject::ProviderItemKey(value) => {
-            key(value, "coordinate provider item key")
+            key(value, "subject provider item key")
         }
         subject_reference::Subject::CatalogRelationKey(value) => {
-            key(value, "coordinate catalog relation key")
+            key(value, "subject catalog relation key")
         }
     }
-}
-
-fn validate_lookup_evidence(evidence: &crate::v1::LookupEvidence) -> Result<(), ValidationError> {
-    if evidence.adapter_revision.is_empty() {
-        return Err(ValidationError::Empty("lookup adapter revision"));
-    }
-    if evidence
-        .expires_time_milliseconds
-        .is_some_and(|expires| expires <= evidence.observed_time_milliseconds)
-    {
-        return Err(ValidationError::Invalid("lookup evidence expiry"));
-    }
-    for reference in &evidence.matched_references {
-        portable_reference(reference, "lookup matched reference")?;
-    }
-    Ok(())
 }
 
 fn account_snapshot(account: &AccountSnapshot) -> Result<(), ValidationError> {
@@ -1670,28 +1268,6 @@ fn non_empty_text(value: &str, field: &'static str) -> Result<(), ValidationErro
     } else {
         Ok(())
     }
-}
-
-fn validate_unique_text(values: &[String], field: &'static str) -> Result<(), ValidationError> {
-    let mut unique = HashSet::new();
-    for value in values {
-        non_empty_text(value, field)?;
-        if !unique.insert(value) {
-            return Err(ValidationError::Duplicate(field));
-        }
-    }
-    Ok(())
-}
-
-fn validate_coordinate_ids(values: &[String], field: &'static str) -> Result<(), ValidationError> {
-    validate_unique_text(values, field)?;
-    for coordinate_id in values {
-        let selection = if coordinate_id == "time" { "PT1S" } else { "1" };
-        let selector = format!("{coordinate_id}:{selection}");
-        MappingEndpoint::from_parts("trakkin.invalid", b"capability", Some(&selector))
-            .map_err(|_| ValidationError::Invalid(field))?;
-    }
-    Ok(())
 }
 
 #[cfg(test)]

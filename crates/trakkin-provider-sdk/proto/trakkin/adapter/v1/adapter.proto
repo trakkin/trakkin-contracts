@@ -19,8 +19,6 @@ service AdapterService {
   rpc ReadState(ReadStateRequest) returns (stream ReadStateResponse);
   rpc ReadTargetedState(ReadTargetedStateRequest) returns (ReadTargetedStateResponse);
   rpc WriteTargetedState(WriteTargetedStateRequest) returns (WriteTargetedStateResponse);
-  rpc LookupPortableReferences(LookupPortableReferencesRequest) returns (LookupPortableReferencesResponse);
-  rpc ResolvePortableEndpoints(ResolvePortableEndpointsRequest) returns (ResolvePortableEndpointsResponse);
   rpc ReadAsset(ReadAssetRequest) returns (ReadAssetResponse);
   rpc CancelOperation(CancelOperationRequest) returns (CancelOperationResponse);
   rpc Shutdown(ShutdownRequest) returns (ShutdownResponse);
@@ -68,16 +66,6 @@ message Value {
 message Attribute {
   Term term = 1;
   Value value = 2;
-}
-
-message PortableReference {
-  string namespace = 1;
-  bytes value = 2;
-}
-
-message PortableEndpoint {
-  PortableReference reference = 1;
-  string selector = 2;
 }
 
 message FieldProblem {
@@ -314,23 +302,6 @@ message ReadCapability {
   bool incremental = 2;
 }
 
-message LookupCapability {
-  repeated string reference_namespaces = 1;
-  uint32 maximum_batch_size = 2;
-}
-
-message EndpointLookupCapability {
-  repeated string reference_namespaces = 1;
-  repeated string coordinate_ids = 2;
-  uint32 maximum_batch_size = 3;
-  uint64 maximum_response_bytes = 4;
-}
-
-message ConnectionCapabilities {
-  LookupCapability reference_lookup = 1;
-  EndpointLookupCapability endpoint_lookup = 2;
-}
-
 message OpenConnectionRequest {
   repeated ConfigurationValue settings = 1;
   repeated SecretValue secrets = 2;
@@ -338,8 +309,7 @@ message OpenConnectionRequest {
 
 message OpenConnectionResult {
   repeated AccountSnapshot accounts = 1;
-  ConnectionCapabilities capabilities = 2;
-  repeated SecretPatch secret_patches = 3;
+  repeated SecretPatch secret_patches = 2;
 }
 
 message OpenConnectionResponse {
@@ -388,10 +358,6 @@ message AssetCapability {
   repeated string content_types = 2;
 }
 
-message CoordinateCapability {
-  repeated string coordinate_ids = 1;
-}
-
 message TargetedStateReadCapability {
   uint32 maximum_fields = 1;
   uint64 maximum_response_bytes = 2;
@@ -431,9 +397,8 @@ message SourceCapabilities {
   ReadCapability state = 2;
   repeated StateFieldDescriptor state_fields = 3;
   AssetCapability assets = 4;
-  CoordinateCapability coordinates = 5;
-  TargetedStateReadCapability targeted_state_read = 6;
-  TargetedStateWriteCapability targeted_state_write = 7;
+  TargetedStateReadCapability targeted_state_read = 5;
+  TargetedStateWriteCapability targeted_state_write = 6;
 }
 
 enum SourceAvailability {
@@ -495,9 +460,7 @@ message ProviderItem {
   Term kind = 2;
   string display_name = 3;
   repeated Attribute attributes = 4;
-  repeated PortableReference portable_reference_candidates = 5;
-  repeated BinaryAssetReference assets = 6;
-  repeated PortableReference recommended_mapping_roots = 7;
+  repeated BinaryAssetReference assets = 5;
 }
 
 message CatalogRelation {
@@ -516,33 +479,12 @@ message SubjectReference {
   }
 }
 
-enum CoordinateBacking {
-  COORDINATE_BACKING_UNSPECIFIED = 0;
-  COORDINATE_BACKING_MATERIALIZED = 1;
-  COORDINATE_BACKING_VIRTUAL = 2;
-  COORDINATE_BACKING_AGGREGATE = 3;
-}
-
-message CoordinateBindingKey {
-  PortableEndpoint endpoint = 1;
-  SubjectReference subject = 2;
-}
-
-message CoordinateBinding {
-  PortableEndpoint endpoint = 1;
-  SubjectReference subject = 2;
-  CoordinateBacking backing = 3;
-  bytes evidence_revision = 4;
-}
-
 message CatalogBatch {
   uint64 sequence = 1;
   repeated ProviderItem item_upserts = 2;
   repeated Key item_deletes = 3;
   repeated CatalogRelation relation_upserts = 4;
   repeated Key relation_deletes = 5;
-  repeated CoordinateBinding coordinate_binding_upserts = 6;
-  repeated CoordinateBindingKey coordinate_binding_deletes = 7;
 }
 
 message ReadCompleted {
@@ -749,99 +691,6 @@ message WriteTargetedStateResponse {
   bytes successor_precondition = 7;
   bytes receipt = 8;
   OperationFailure error = 9;
-}
-
-message LookupEvidence {
-  bytes adapter_revision = 1;
-  sint64 observed_time_milliseconds = 2;
-  optional sint64 expires_time_milliseconds = 3;
-  repeated PortableReference matched_references = 4;
-}
-
-message LookupCandidate {
-  ProviderItem provider_item = 1;
-  LookupEvidence evidence = 2;
-}
-
-message LookupMatched {
-  LookupCandidate candidate = 1;
-}
-
-message LookupNotFound {}
-
-message LookupAmbiguous {
-  repeated LookupCandidate candidates = 1;
-}
-
-message LookupUnsupported {}
-
-message PortableReferenceLookupResult {
-  PortableReference requested = 1;
-  oneof outcome {
-    LookupMatched matched = 2;
-    LookupNotFound not_found = 3;
-    LookupAmbiguous ambiguous = 4;
-    LookupUnsupported unsupported = 5;
-  }
-}
-
-message LookupPortableReferencesRequest {
-  bytes operation_id = 1;
-  Key source_key = 2;
-  repeated PortableReference references = 3;
-}
-
-message LookupPortableReferencesResult {
-  repeated PortableReferenceLookupResult results = 1;
-}
-
-message LookupPortableReferencesResponse {
-  oneof outcome {
-    LookupPortableReferencesResult result = 1;
-    OperationFailure error = 2;
-  }
-}
-
-message EndpointLookupCandidate {
-  ProviderItem provider_item = 1;
-  CoordinateBinding binding = 2;
-  LookupEvidence evidence = 3;
-}
-
-message EndpointLookupMatched {
-  EndpointLookupCandidate candidate = 1;
-}
-
-message EndpointLookupAmbiguous {
-  repeated EndpointLookupCandidate candidates = 1;
-}
-
-message PortableEndpointResolution {
-  PortableEndpoint requested = 1;
-  oneof outcome {
-    EndpointLookupMatched matched = 2;
-    LookupNotFound not_found = 3;
-    EndpointLookupAmbiguous ambiguous = 4;
-    LookupUnsupported unsupported = 5;
-  }
-}
-
-message ResolvePortableEndpointsRequest {
-  bytes operation_id = 1;
-  Key source_key = 2;
-  repeated PortableEndpoint endpoints = 3;
-  uint64 maximum_response_bytes = 4;
-}
-
-message ResolvePortableEndpointsResult {
-  repeated PortableEndpointResolution results = 1;
-}
-
-message ResolvePortableEndpointsResponse {
-  oneof outcome {
-    ResolvePortableEndpointsResult result = 1;
-    OperationFailure error = 2;
-  }
 }
 
 message ContentHash {

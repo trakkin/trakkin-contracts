@@ -1,8 +1,0 @@
-{
-  "schema": "trakkin.mapping/v1",
-  "revision": 1,
-  "mappings": [
-    ["example.media://double-length[episode:1..*2]", "example.media://weekly[episode:1..]"],
-    ["catalog.example://title/primary", "metadata.example://movie/secondary"]
-  ]
-}

@@ -68,20 +68,13 @@ fn descriptor_contains_provider_contracts() {
             "ReadState",
             "ReadTargetedState",
             "WriteTargetedState",
-            "LookupPortableReferences",
-            "ResolvePortableEndpoints",
             "ReadAsset",
             "CancelOperation",
             "Shutdown",
         ]
     );
     let descriptor_text = format!("{descriptor:?}");
-    for forbidden in [
-        "ReviewService",
-        "EventService",
-        "WriteCurrentState",
-        "MappingInterface",
-    ] {
+    for forbidden in ["ReviewService", "EventService", "WriteCurrentState"] {
         assert!(!descriptor_text.contains(forbidden), "found {forbidden}");
     }
 

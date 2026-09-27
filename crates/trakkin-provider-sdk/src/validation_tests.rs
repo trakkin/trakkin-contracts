@@ -2,38 +2,30 @@ use crate::{
     v1::{
         AccountSnapshot, AuthenticationProgress, AuthenticationStatus,
         CancelAuthenticationResponse, CancelAuthenticationResult, CancelOperationResponse,
-        CancelOperationResult, CatalogBatch, ConfigurationValueKind, ConnectionCapabilities,
-        ContentHash, ContinueAuthenticationResponse, CoordinateBacking, CoordinateBinding,
-        DescribeConnectionResponse, DiscoverSourcesResponse, DiscoverSourcesResult,
-        EndpointLookupCandidate, EndpointLookupCapability, EndpointLookupMatched, FieldProblem,
-        HealthResponse, HealthStatus, Key, ListAuthenticationMethodsResponse, LookupAmbiguous,
-        LookupCandidate, LookupCapability, LookupEvidence, LookupMatched,
-        LookupPortableReferencesRequest, LookupPortableReferencesResponse,
-        LookupPortableReferencesResult, OpenConnectionResponse, OpenConnectionResult,
-        OperationFailure, OperationFailureCategory, PortableEndpoint, PortableEndpointResolution,
-        PortableReference, PortableReferenceLookupResult, ProviderItem, ReadAssetResponse,
+        CancelOperationResult, CatalogBatch, ConfigurationValueKind, ContentHash,
+        ContinueAuthenticationResponse, DescribeConnectionResponse, DiscoverSourcesResponse,
+        DiscoverSourcesResult, FieldProblem, HealthResponse, HealthStatus, Key,
+        ListAuthenticationMethodsResponse, OpenConnectionResponse, OpenConnectionResult,
+        OperationFailure, OperationFailureCategory, ProviderItem, ReadAssetResponse,
         ReadAssetResult, ReadCancelled, ReadCatalogRequest, ReadCatalogResponse, ReadCompleted,
         ReadHeartbeat, ReadMode, ReadStateRequest, ReadStateResponse, ReadTargetedStateRequest,
-        ReadTargetedStateResponse, ResolvePortableEndpointsRequest,
-        ResolvePortableEndpointsResponse, ResolvePortableEndpointsResult, RetryAdvice,
-        RetryDisposition, SourceAvailability, SourceCapabilities, SourceMembership, SourceSnapshot,
-        StartAuthenticationResponse, StateBatch, StateField, StateFieldDescriptor,
-        StateFieldNumericRange, StateFieldQuantizer, StatePresence, SubjectReference,
-        TargetedStateClear, TargetedStateFieldEffectKind, TargetedStateFieldObservation,
-        TargetedStateFieldWriteCapability, TargetedStateMembershipEffect,
-        TargetedStateReadAmbiguous, TargetedStateReadCapability, TargetedStateReadIndeterminate,
-        TargetedStateReadMatched, TargetedStateReadNotFound, TargetedStateReadUnsupported,
-        TargetedStateWriteCapability, TargetedStateWriteCausation, TargetedStateWriteCertainty,
-        TargetedStateWriteFieldEffect, TargetedStateWriteIdempotencyMode, TargetedStateWriteIntent,
+        ReadTargetedStateResponse, RetryAdvice, RetryDisposition, SourceAvailability,
+        SourceCapabilities, SourceMembership, SourceSnapshot, StartAuthenticationResponse,
+        StateBatch, StateField, StateFieldDescriptor, StateFieldNumericRange, StateFieldQuantizer,
+        StatePresence, SubjectReference, TargetedStateClear, TargetedStateFieldEffectKind,
+        TargetedStateFieldObservation, TargetedStateFieldWriteCapability,
+        TargetedStateMembershipEffect, TargetedStateReadAmbiguous, TargetedStateReadCapability,
+        TargetedStateReadIndeterminate, TargetedStateReadMatched, TargetedStateReadNotFound,
+        TargetedStateReadUnsupported, TargetedStateWriteCapability, TargetedStateWriteCausation,
+        TargetedStateWriteCertainty, TargetedStateWriteFieldEffect,
+        TargetedStateWriteIdempotencyMode, TargetedStateWriteIntent,
         TargetedStateWritePreconditionMode, TargetedStateWriteRetryDisposition,
         TargetedStateWriteStatus, Term, ValidateConnectionResponse, ValidateConnectionResult,
         Value, WriteTargetedStateRequest, WriteTargetedStateResponse,
         cancel_authentication_response, cancel_operation_response,
         continue_authentication_response, describe_connection_response, discover_sources_response,
-        list_authentication_methods_response, lookup_portable_references_response,
-        open_connection_response, portable_endpoint_resolution, portable_reference_lookup_result,
-        read_asset_response, read_catalog_response, read_state_response,
-        read_targeted_state_response, resolve_portable_endpoints_response,
+        list_authentication_methods_response, open_connection_response, read_asset_response,
+        read_catalog_response, read_state_response, read_targeted_state_response,
         start_authentication_response, subject_reference, targeted_state_write_intent,
         validate_connection_response, value,
     },
@@ -72,28 +64,11 @@ fn term(name: &str) -> Term {
     }
 }
 
-fn reference(value: &str) -> PortableReference {
-    PortableReference {
-        namespace: "example.media".to_owned(),
-        value: value.as_bytes().to_vec(),
-    }
-}
-
-fn endpoint(value: &str, selector: &str) -> PortableEndpoint {
-    PortableEndpoint {
-        reference: Some(reference(value)),
-        selector: selector.to_owned(),
-    }
-}
-
 fn item(value: &str) -> ProviderItem {
-    let reference = reference(value);
     ProviderItem {
         key: Some(key(value)),
         kind: Some(term("movie")),
         display_name: value.to_owned(),
-        portable_reference_candidates: vec![reference.clone()],
-        recommended_mapping_roots: vec![reference],
         ..ProviderItem::default()
     }
 }
@@ -208,13 +183,6 @@ fn account_source_plurality_and_read_modes_are_validated() {
         outcome: Some(open_connection_response::Outcome::Result(
             OpenConnectionResult {
                 accounts: accounts.clone(),
-                capabilities: Some(ConnectionCapabilities {
-                    reference_lookup: Some(LookupCapability {
-                        reference_namespaces: vec!["example.media".to_owned()],
-                        maximum_batch_size: 20,
-                    }),
-                    endpoint_lookup: None,
-                }),
                 secret_patches: Vec::new(),
             },
         )),
@@ -261,48 +229,6 @@ fn account_source_plurality_and_read_modes_are_validated() {
         preferred_batch_size: 100,
     })
     .unwrap();
-}
-
-#[test]
-fn connection_lookup_capabilities_are_absent_or_usable() {
-    validation::open_connection_response(&OpenConnectionResponse {
-        outcome: Some(open_connection_response::Outcome::Result(
-            OpenConnectionResult::default(),
-        )),
-    })
-    .unwrap();
-
-    let unusable_reference_lookup = OpenConnectionResponse {
-        outcome: Some(open_connection_response::Outcome::Result(
-            OpenConnectionResult {
-                capabilities: Some(ConnectionCapabilities {
-                    reference_lookup: Some(LookupCapability::default()),
-                    endpoint_lookup: None,
-                }),
-                ..OpenConnectionResult::default()
-            },
-        )),
-    };
-    assert_eq!(
-        validation::open_connection_response(&unusable_reference_lookup),
-        Err(ValidationError::Invalid("lookup capability"))
-    );
-
-    let unusable_endpoint_lookup = OpenConnectionResponse {
-        outcome: Some(open_connection_response::Outcome::Result(
-            OpenConnectionResult {
-                capabilities: Some(ConnectionCapabilities {
-                    reference_lookup: None,
-                    endpoint_lookup: Some(EndpointLookupCapability::default()),
-                }),
-                ..OpenConnectionResult::default()
-            },
-        )),
-    };
-    assert_eq!(
-        validation::open_connection_response(&unusable_endpoint_lookup),
-        Err(ValidationError::Invalid("endpoint lookup capability"))
-    );
 }
 
 #[test]
@@ -358,25 +284,6 @@ fn unary_operation_responses_require_closed_outcomes() {
         },
     )
     .unwrap();
-    validation::lookup_response(
-        &[],
-        &LookupPortableReferencesResponse {
-            outcome: Some(lookup_portable_references_response::Outcome::Error(
-                error.clone(),
-            )),
-        },
-    )
-    .unwrap();
-    validation::resolve_endpoints_response(
-        &[],
-        &ResolvePortableEndpointsResponse {
-            outcome: Some(resolve_portable_endpoints_response::Outcome::Error(
-                error.clone(),
-            )),
-        },
-        4096,
-    )
-    .unwrap();
     validation::asset_response(
         &ReadAssetResponse {
             outcome: Some(read_asset_response::Outcome::Error(error)),
@@ -389,20 +296,6 @@ fn unary_operation_responses_require_closed_outcomes() {
     assert_eq!(
         validation::discover_sources_response(&[], &DiscoverSourcesResponse::default()),
         Err(ValidationError::Missing("source discovery outcome"))
-    );
-    assert_eq!(
-        validation::lookup_response(&[], &LookupPortableReferencesResponse::default()),
-        Err(ValidationError::Missing(
-            "portable reference lookup outcome"
-        ))
-    );
-    assert_eq!(
-        validation::resolve_endpoints_response(
-            &[],
-            &ResolvePortableEndpointsResponse::default(),
-            4096,
-        ),
-        Err(ValidationError::Missing("endpoint resolution outcome"))
     );
     assert_eq!(
         validation::asset_response(
@@ -555,131 +448,6 @@ fn status_coupled_errors_and_cancellation_outcomes_are_validated() {
 }
 
 #[test]
-fn ambiguous_lookup_requires_multiple_valid_candidates() {
-    let requested = reference("signal");
-    let candidate = LookupCandidate {
-        provider_item: Some(item("signal-a")),
-        evidence: Some(LookupEvidence {
-            adapter_revision: b"lookup-1".to_vec(),
-            observed_time_milliseconds: 1_893_456_245_000,
-            expires_time_milliseconds: None,
-            matched_references: vec![requested.clone()],
-        }),
-    };
-    let response = LookupPortableReferencesResponse {
-        outcome: Some(lookup_portable_references_response::Outcome::Result(
-            LookupPortableReferencesResult {
-                results: vec![PortableReferenceLookupResult {
-                    requested: Some(requested.clone()),
-                    outcome: Some(portable_reference_lookup_result::Outcome::Ambiguous(
-                        LookupAmbiguous {
-                            candidates: vec![candidate],
-                        },
-                    )),
-                }],
-            },
-        )),
-    };
-    assert_eq!(
-        validation::lookup_response(&[requested], &response),
-        Err(ValidationError::InsufficientCandidates)
-    );
-}
-
-#[test]
-fn lookup_candidates_require_consistent_reference_sets() {
-    let requested = reference("signal");
-    let candidate = |provider_item| LookupCandidate {
-        provider_item: Some(provider_item),
-        evidence: Some(LookupEvidence {
-            adapter_revision: b"lookup-1".to_vec(),
-            observed_time_milliseconds: 1_893_456_245_000,
-            expires_time_milliseconds: None,
-            matched_references: vec![requested.clone()],
-        }),
-    };
-    let response = |provider_item| LookupPortableReferencesResponse {
-        outcome: Some(lookup_portable_references_response::Outcome::Result(
-            LookupPortableReferencesResult {
-                results: vec![PortableReferenceLookupResult {
-                    requested: Some(requested.clone()),
-                    outcome: Some(portable_reference_lookup_result::Outcome::Matched(
-                        LookupMatched {
-                            candidate: Some(candidate(provider_item)),
-                        },
-                    )),
-                }],
-            },
-        )),
-    };
-
-    let mut candidate_only = item("signal");
-    candidate_only.recommended_mapping_roots.clear();
-    validation::lookup_response(std::slice::from_ref(&requested), &response(candidate_only))
-        .unwrap();
-
-    assert_eq!(
-        validation::lookup_response(std::slice::from_ref(&requested), &response(item("other"))),
-        Err(ValidationError::Invalid(
-            "lookup candidate requested reference"
-        ))
-    );
-
-    let mut duplicate_candidate = item("duplicate-candidate");
-    duplicate_candidate
-        .portable_reference_candidates
-        .push(reference("duplicate-candidate"));
-    assert_eq!(
-        validation::lookup_response(
-            std::slice::from_ref(&requested),
-            &response(duplicate_candidate)
-        ),
-        Err(ValidationError::Duplicate(
-            "provider item portable reference candidate"
-        ))
-    );
-
-    let mut duplicate_root = item("duplicate-root");
-    duplicate_root
-        .recommended_mapping_roots
-        .push(reference("duplicate-root"));
-    assert_eq!(
-        validation::lookup_response(std::slice::from_ref(&requested), &response(duplicate_root)),
-        Err(ValidationError::Duplicate(
-            "provider item recommended mapping root"
-        ))
-    );
-
-    let mut unknown_root = item("unknown-root");
-    unknown_root.recommended_mapping_roots = vec![reference("other")];
-    assert_eq!(
-        validation::lookup_response(std::slice::from_ref(&requested), &response(unknown_root)),
-        Err(ValidationError::Invalid(
-            "provider item recommended mapping root"
-        ))
-    );
-}
-
-#[test]
-fn portable_lookup_requests_require_source_identity() {
-    let request = LookupPortableReferencesRequest {
-        operation_id: b"lookup-1".to_vec(),
-        references: vec![reference("signal")],
-        source_key: Some(key("source-a")),
-    };
-    validation::lookup_request(&request).unwrap();
-
-    let mut missing_source = request;
-    missing_source.source_key = None;
-    assert_eq!(
-        validation::lookup_request(&missing_source),
-        Err(ValidationError::Missing(
-            "portable reference lookup source key"
-        ))
-    );
-}
-
-#[test]
 fn asset_validation_enforces_bound_content_type_length_and_hash() {
     let content = b"fixture-image".to_vec();
     let response = ReadAssetResponse {
@@ -717,124 +485,6 @@ fn asset_validation_enforces_bound_content_type_length_and_hash() {
     assert_eq!(
         validation::asset_response(&invalid_cache_control, 1024, &["image/jpeg".to_owned()]),
         Err(ValidationError::Invalid("asset cache control"))
-    );
-}
-
-#[test]
-fn protocol_one_validates_coordinate_backings_and_bounded_endpoint_lookup() {
-    let requested = endpoint("title-total", "episode:1..12");
-    let bindings = [
-        ("children", CoordinateBacking::Materialized),
-        ("virtual-cour", CoordinateBacking::Virtual),
-        ("title-total", CoordinateBacking::Aggregate),
-    ]
-    .into_iter()
-    .map(|(value, backing)| CoordinateBinding {
-        endpoint: Some(endpoint(value, "episode:1..12")),
-        subject: Some(SubjectReference {
-            subject: Some(subject_reference::Subject::ProviderItemKey(key(value))),
-        }),
-        backing: backing as i32,
-        evidence_revision: b"coordinates-r1".to_vec(),
-    })
-    .collect::<Vec<_>>();
-    let mut validator = CatalogStreamValidator::default();
-    validator
-        .accept(&ReadCatalogResponse {
-            event: Some(read_catalog_response::Event::Batch(CatalogBatch {
-                sequence: 0,
-                coordinate_binding_upserts: bindings.clone(),
-                ..CatalogBatch::default()
-            })),
-        })
-        .unwrap();
-    validator
-        .accept(&ReadCatalogResponse {
-            event: Some(read_catalog_response::Event::Completed(ReadCompleted {
-                next_cursor: b"cursor-1".to_vec(),
-                evidence_revision: b"catalog-r1".to_vec(),
-                observed_time_milliseconds: 1_893_456_245_000,
-            })),
-        })
-        .unwrap();
-    validator.finish().unwrap();
-
-    let request = ResolvePortableEndpointsRequest {
-        operation_id: b"endpoint-lookup-1".to_vec(),
-        endpoints: vec![requested.clone()],
-        maximum_response_bytes: 4096,
-        source_key: Some(key("source-a")),
-    };
-    validation::resolve_endpoints_request(&request).unwrap();
-    let response = ResolvePortableEndpointsResponse {
-        outcome: Some(resolve_portable_endpoints_response::Outcome::Result(
-            ResolvePortableEndpointsResult {
-                results: vec![PortableEndpointResolution {
-                    requested: Some(requested.clone()),
-                    outcome: Some(portable_endpoint_resolution::Outcome::Matched(
-                        EndpointLookupMatched {
-                            candidate: Some(EndpointLookupCandidate {
-                                provider_item: Some(item("title-total")),
-                                binding: Some(bindings[2].clone()),
-                                evidence: Some(LookupEvidence {
-                                    adapter_revision: b"lookup-r1".to_vec(),
-                                    observed_time_milliseconds: 1_893_456_245_000,
-                                    expires_time_milliseconds: Some(1_893_456_305_000),
-                                    matched_references: vec![reference("title-total")],
-                                }),
-                            }),
-                        },
-                    )),
-                }],
-            },
-        )),
-    };
-    validation::resolve_endpoints_response(
-        &request.endpoints,
-        &response,
-        request.maximum_response_bytes,
-    )
-    .unwrap();
-    assert!(matches!(
-        validation::resolve_endpoints_response(&request.endpoints, &response, 1),
-        Err(ValidationError::EndpointResponseTooLarge { .. })
-    ));
-
-    let capabilities = OpenConnectionResponse {
-        outcome: Some(open_connection_response::Outcome::Result(
-            OpenConnectionResult {
-                capabilities: Some(ConnectionCapabilities {
-                    reference_lookup: None,
-                    endpoint_lookup: Some(EndpointLookupCapability {
-                        reference_namespaces: vec!["example.media".to_owned()],
-                        coordinate_ids: vec!["episode".to_owned()],
-                        maximum_batch_size: 20,
-                        maximum_response_bytes: 65_536,
-                    }),
-                }),
-                ..OpenConnectionResult::default()
-            },
-        )),
-    };
-    validation::open_connection_response(&capabilities).unwrap();
-
-    let mut invalid_capabilities = capabilities;
-    let Some(open_connection_response::Outcome::Result(result)) =
-        invalid_capabilities.outcome.as_mut()
-    else {
-        unreachable!();
-    };
-    result
-        .capabilities
-        .as_mut()
-        .unwrap()
-        .endpoint_lookup
-        .as_mut()
-        .unwrap()
-        .coordinate_ids = vec!["unknown".to_owned()];
-    assert_eq!(
-        validation::open_connection_response(&invalid_capabilities),
-        Err(ValidationError::Invalid("endpoint lookup coordinate ID"))
     );
 }
 
