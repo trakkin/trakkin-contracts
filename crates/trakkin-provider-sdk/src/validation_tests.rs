@@ -12,13 +12,13 @@ use crate::{
         ReadTargetedStateResponse, RetryAdvice, RetryDisposition, SourceAvailability,
         SourceCapabilities, SourceMembership, SourceSnapshot, StartAuthenticationResponse,
         StateBatch, StateField, StateFieldDescriptor, StateFieldNumericRange, StateFieldQuantizer,
-        StatePresence, SubjectReference, TargetedStateClear, TargetedStateFieldEffectKind,
-        TargetedStateFieldObservation, TargetedStateFieldWriteCapability,
-        TargetedStateMembershipEffect, TargetedStateReadAmbiguous, TargetedStateReadCapability,
-        TargetedStateReadIndeterminate, TargetedStateReadMatched, TargetedStateReadNotFound,
-        TargetedStateReadUnsupported, TargetedStateWriteCapability, TargetedStateWriteCausation,
-        TargetedStateWriteCertainty, TargetedStateWriteFieldEffect,
-        TargetedStateWriteIdempotencyMode, TargetedStateWriteIntent,
+        StatePresence, SubjectReference, SubjectUnitBinding, SubjectUnitBindingKey,
+        TargetedStateClear, TargetedStateFieldEffectKind, TargetedStateFieldObservation,
+        TargetedStateFieldWriteCapability, TargetedStateMembershipEffect,
+        TargetedStateReadAmbiguous, TargetedStateReadCapability, TargetedStateReadIndeterminate,
+        TargetedStateReadMatched, TargetedStateReadNotFound, TargetedStateReadUnsupported,
+        TargetedStateWriteCapability, TargetedStateWriteCausation, TargetedStateWriteCertainty,
+        TargetedStateWriteFieldEffect, TargetedStateWriteIdempotencyMode, TargetedStateWriteIntent,
         TargetedStateWritePreconditionMode, TargetedStateWriteRetryDisposition,
         TargetedStateWriteStatus, Term, ValidateConnectionResponse, ValidateConnectionResult,
         Value, WriteTargetedStateRequest, WriteTargetedStateResponse,
@@ -165,6 +165,103 @@ fn catalog_stream_requires_contiguous_batches_and_one_terminal_event() {
         })
         .unwrap();
     assert_eq!(missing.finish(), Err(ValidationError::MissingTerminal));
+}
+
+#[test]
+fn catalog_stream_validates_subject_unit_bindings() {
+    let subject = SubjectReference {
+        subject: Some(subject_reference::Subject::ProviderItemKey(key("signal"))),
+    };
+    let binding_key = SubjectUnitBindingKey {
+        unit_key: "org.themoviedb://movie/603".to_owned(),
+        subject: Some(subject),
+    };
+    let binding = SubjectUnitBinding {
+        key: Some(binding_key.clone()),
+        relevance_rank: Some(2),
+    };
+    let mut sparse_binding_key = binding_key.clone();
+    sparse_binding_key.unit_key = "org.themoviedb://movie/604".to_owned();
+    let mut validator = CatalogStreamValidator::default();
+    validator
+        .accept(&ReadCatalogResponse {
+            event: Some(read_catalog_response::Event::Batch(CatalogBatch {
+                sequence: 0,
+                unit_binding_upserts: vec![
+                    binding.clone(),
+                    SubjectUnitBinding {
+                        key: Some(sparse_binding_key),
+                        relevance_rank: Some(7),
+                    },
+                ],
+                unit_binding_deletes: vec![binding_key],
+                ..CatalogBatch::default()
+            })),
+        })
+        .unwrap();
+
+    let mut invalid = CatalogStreamValidator::default();
+    assert_eq!(
+        invalid.accept(&ReadCatalogResponse {
+            event: Some(read_catalog_response::Event::Batch(CatalogBatch {
+                sequence: 0,
+                unit_binding_upserts: vec![SubjectUnitBinding::default()],
+                ..CatalogBatch::default()
+            })),
+        }),
+        Err(ValidationError::Missing("subject unit binding key"))
+    );
+
+    let mut missing_rank = CatalogStreamValidator::default();
+    assert_eq!(
+        missing_rank.accept(&ReadCatalogResponse {
+            event: Some(read_catalog_response::Event::Batch(CatalogBatch {
+                sequence: 0,
+                unit_binding_upserts: vec![SubjectUnitBinding {
+                    key: binding.key,
+                    relevance_rank: None,
+                }],
+                ..CatalogBatch::default()
+            })),
+        }),
+        Err(ValidationError::Missing(
+            "subject unit binding relevance rank"
+        ))
+    );
+
+    for unit_key in [
+        String::new(),
+        "x".repeat(4_097),
+        "not-a-reference".to_owned(),
+        "1.invalid://item".to_owned(),
+        "example://".to_owned(),
+        "example://item with space".to_owned(),
+        "example://item,other".to_owned(),
+        "example://item :: episode=1".to_owned(),
+    ] {
+        let mut invalid = CatalogStreamValidator::default();
+        assert!(
+            invalid
+                .accept(&ReadCatalogResponse {
+                    event: Some(read_catalog_response::Event::Batch(CatalogBatch {
+                        sequence: 0,
+                        unit_binding_upserts: vec![SubjectUnitBinding {
+                            key: Some(SubjectUnitBindingKey {
+                                unit_key,
+                                subject: Some(SubjectReference {
+                                    subject: Some(subject_reference::Subject::ProviderItemKey(
+                                        key("signal",)
+                                    )),
+                                }),
+                            }),
+                            relevance_rank: Some(crate::v1::AUTHORITATIVE_UNIT_RELEVANCE_RANK),
+                        }],
+                        ..CatalogBatch::default()
+                    })),
+                })
+                .is_err()
+        );
+    }
 }
 
 #[test]

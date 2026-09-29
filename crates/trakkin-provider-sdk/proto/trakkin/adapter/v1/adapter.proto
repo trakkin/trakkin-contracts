@@ -479,12 +479,27 @@ message SubjectReference {
   }
 }
 
+message SubjectUnitBindingKey {
+  // Source reference for one synchronization unit.
+  string unit_key = 1;
+  SubjectReference subject = 2;
+}
+
+message SubjectUnitBinding {
+  SubjectUnitBindingKey key = 1;
+  // Zero is exact or authoritative. Larger values are ordered alternatives.
+  // Ranks are absolute, may be sparse, and ties have equal relevance.
+  optional uint32 relevance_rank = 2;
+}
+
 message CatalogBatch {
   uint64 sequence = 1;
   repeated ProviderItem item_upserts = 2;
   repeated Key item_deletes = 3;
   repeated CatalogRelation relation_upserts = 4;
   repeated Key relation_deletes = 5;
+  repeated SubjectUnitBinding unit_binding_upserts = 6;
+  repeated SubjectUnitBindingKey unit_binding_deletes = 7;
 }
 
 message ReadCompleted {

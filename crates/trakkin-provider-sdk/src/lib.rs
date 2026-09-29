@@ -8,6 +8,11 @@ pub const PROTOCOL_MINOR: u32 = 0;
 
 #[allow(clippy::large_enum_variant)]
 pub mod v1 {
+    /// The relevance rank reserved for exact or authoritative mapping units.
+    pub const AUTHORITATIVE_UNIT_RELEVANCE_RANK: u32 = 0;
+    /// Maximum UTF-8 byte length of a canonical mapping unit key.
+    pub const MAXIMUM_MAPPING_UNIT_KEY_BYTES: usize = 4_096;
+
     tonic::include_proto!("trakkin.adapter.v1");
 }
 

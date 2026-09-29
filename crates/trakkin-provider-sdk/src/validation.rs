@@ -1099,7 +1099,32 @@ fn validate_catalog_batch(batch: &CatalogBatch, expected: u64) -> Result<(), Val
     for deleted in &batch.relation_deletes {
         key(deleted, "deleted catalog relation key")?;
     }
+    for binding in &batch.unit_binding_upserts {
+        validate_subject_unit_binding_key(
+            binding
+                .key
+                .as_ref()
+                .ok_or(ValidationError::Missing("subject unit binding key"))?,
+        )?;
+        binding.relevance_rank.ok_or(ValidationError::Missing(
+            "subject unit binding relevance rank",
+        ))?;
+    }
+    for key in &batch.unit_binding_deletes {
+        validate_subject_unit_binding_key(key)?;
+    }
     Ok(())
+}
+
+fn validate_subject_unit_binding_key(
+    key: &crate::v1::SubjectUnitBindingKey,
+) -> Result<(), ValidationError> {
+    mapping_unit_key(&key.unit_key)?;
+    validate_subject(
+        key.subject
+            .as_ref()
+            .ok_or(ValidationError::Missing("mapping unit subject"))?,
+    )
 }
 
 fn validate_state_batch(batch: &StateBatch, expected: u64) -> Result<(), ValidationError> {
@@ -1190,6 +1215,30 @@ fn validate_subject(subject: &SubjectReference) -> Result<(), ValidationError> {
             key(value, "subject catalog relation key")
         }
     }
+}
+
+fn mapping_unit_key(value: &str) -> Result<(), ValidationError> {
+    non_empty_text(value, "mapping unit key")?;
+    if value.len() > crate::v1::MAXIMUM_MAPPING_UNIT_KEY_BYTES {
+        return Err(ValidationError::Invalid("mapping unit key"));
+    }
+    let Some((source, opaque)) = value.split_once("://") else {
+        return Err(ValidationError::Invalid("mapping unit key"));
+    };
+    let mut source_bytes = source.bytes();
+    if !source_bytes
+        .next()
+        .is_some_and(|byte| byte.is_ascii_alphabetic())
+        || !source_bytes
+            .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'.' | b'_' | b'-'))
+        || opaque.is_empty()
+        || opaque
+            .bytes()
+            .any(|byte| byte <= b' ' || matches!(byte, b',' | b'<' | b'>' | b'[' | b']' | 0x7f))
+    {
+        return Err(ValidationError::Invalid("mapping unit key"));
+    }
+    Ok(())
 }
 
 fn account_snapshot(account: &AccountSnapshot) -> Result<(), ValidationError> {
