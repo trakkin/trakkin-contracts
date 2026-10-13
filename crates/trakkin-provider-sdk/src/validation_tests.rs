@@ -125,6 +125,34 @@ fn source_capabilities_require_complete_numeric_translation_metadata() {
 }
 
 #[test]
+fn mapping_unit_keys_are_canonical_opaque_and_byte_bounded() {
+    for key in [
+        "org.themoviedb://movie/603",
+        "example://foo::bar",
+        "example://opaque=1",
+        "example://caf\u{e9}",
+    ] {
+        validation::mapping_unit_key(key).unwrap();
+    }
+    for key in [
+        "",
+        "1source://key",
+        "source://",
+        "source://key :: episode=1",
+        "source://key,other",
+        "source://key\u{7f}",
+    ] {
+        assert!(validation::mapping_unit_key(key).is_err());
+    }
+    let maximum = format!(
+        "a://{}",
+        "x".repeat(crate::v1::MAXIMUM_MAPPING_UNIT_KEY_BYTES - 4)
+    );
+    validation::mapping_unit_key(&maximum).unwrap();
+    assert!(validation::mapping_unit_key(&(maximum + "x")).is_err());
+}
+
+#[test]
 fn catalog_stream_requires_contiguous_batches_and_one_terminal_event() {
     let mut validator = CatalogStreamValidator::default();
     validator
