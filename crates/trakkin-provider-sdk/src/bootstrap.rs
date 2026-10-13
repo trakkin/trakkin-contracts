@@ -1,7 +1,7 @@
 use std::{
     future::Future,
     io::{self, BufRead, Write},
-    net::{IpAddr, SocketAddr},
+    net::SocketAddr,
 };
 
 use crate::{
@@ -21,68 +21,83 @@ use tonic::{
 };
 
 pub const BOOTSTRAP_VERSION: u32 = 1;
+pub const MAXIMUM_BOOTSTRAP_MESSAGE_BYTES: u64 = 16 * 1024;
 pub const LAUNCH_TOKEN_HEADER: &str = "x-trakkin-launch-token";
 const ADAPTER_SERVICE_PATH_PREFIX: &str = "/trakkin.adapter.v1.AdapterService/";
 pub use crate::bootstrap_v1::{LaunchRequest, ReadyMessage};
 
 impl LaunchRequest {
     pub fn validate(&self) -> Result<SocketAddr, LaunchMessageError> {
-        if self.bootstrap_version != BOOTSTRAP_VERSION {
-            return Err(LaunchMessageError::UnsupportedVersion(
-                self.bootstrap_version,
-            ));
+        validate_identity(
+            self.bootstrap_version,
+            &self.process_instance_id,
+            &self.launch_token,
+        )?;
+        loopback_address(&self.bind_address)
+    }
+}
+
+impl ReadyMessage {
+    pub fn validate(&self) -> Result<SocketAddr, LaunchMessageError> {
+        validate_identity(
+            self.bootstrap_version,
+            &self.process_instance_id,
+            &self.launch_token,
+        )?;
+        let address = loopback_address(&self.address)?;
+        if address.port() == 0 {
+            return Err(LaunchMessageError::NonListeningAddress);
         }
-        if self.process_instance_id.is_empty() {
-            return Err(LaunchMessageError::MissingProcessInstanceId);
+        Ok(address)
+    }
+
+    pub fn validate_for(&self, launch: &LaunchRequest) -> Result<SocketAddr, LaunchMessageError> {
+        launch.validate()?;
+        let address = self.validate()?;
+        if self.process_instance_id != launch.process_instance_id {
+            return Err(LaunchMessageError::ProcessInstanceMismatch);
         }
-        if self.launch_token.is_empty() {
-            return Err(LaunchMessageError::MissingLaunchToken);
-        }
-        let address = self
-            .bind_address
-            .parse::<SocketAddr>()
-            .map_err(LaunchMessageError::InvalidBindAddress)?;
-        if !is_loopback(address.ip()) {
-            return Err(LaunchMessageError::NonLoopbackAddress);
+        if self.launch_token != launch.launch_token {
+            return Err(LaunchMessageError::LaunchTokenMismatch);
         }
         Ok(address)
     }
 }
 
-pub fn read_launch_request(mut reader: impl BufRead) -> Result<LaunchRequest, LaunchMessageError> {
+pub fn read_launch_request(reader: impl BufRead) -> Result<LaunchRequest, LaunchMessageError> {
     let mut line = String::new();
-    if reader.read_line(&mut line)? == 0 {
+    if reader
+        .take(MAXIMUM_BOOTSTRAP_MESSAGE_BYTES + 1)
+        .read_line(&mut line)?
+        == 0
+    {
         return Err(LaunchMessageError::MissingMessage);
     }
+    check_message_size(line.len())?;
     let launch = serde_json::from_str::<LaunchRequest>(&line)?;
     launch.validate()?;
     Ok(launch)
+}
+
+pub fn parse_ready_message(
+    bytes: &[u8],
+    launch: &LaunchRequest,
+) -> Result<(ReadyMessage, SocketAddr), LaunchMessageError> {
+    check_message_size(bytes.len())?;
+    let ready: ReadyMessage = serde_json::from_slice(bytes)?;
+    let address = ready.validate_for(launch)?;
+    Ok((ready, address))
 }
 
 pub fn write_ready_message(
     mut writer: impl Write,
     message: &ReadyMessage,
 ) -> Result<(), LaunchMessageError> {
-    if message.bootstrap_version != BOOTSTRAP_VERSION {
-        return Err(LaunchMessageError::UnsupportedVersion(
-            message.bootstrap_version,
-        ));
-    }
-    if message.process_instance_id.is_empty() {
-        return Err(LaunchMessageError::MissingProcessInstanceId);
-    }
-    if message.launch_token.is_empty() {
-        return Err(LaunchMessageError::MissingLaunchToken);
-    }
-    let address = message
-        .address
-        .parse::<SocketAddr>()
-        .map_err(LaunchMessageError::InvalidBindAddress)?;
-    if !is_loopback(address.ip()) {
-        return Err(LaunchMessageError::NonLoopbackAddress);
-    }
-    serde_json::to_writer(&mut writer, message)?;
-    writer.write_all(b"\n")?;
+    message.validate()?;
+    let mut encoded = serde_json::to_vec(message)?;
+    encoded.push(b'\n');
+    check_message_size(encoded.len())?;
+    writer.write_all(&encoded)?;
     writer.flush()?;
     Ok(())
 }
@@ -95,6 +110,8 @@ pub enum LaunchMessageError {
     Json(#[from] serde_json::Error),
     #[error("adapter bootstrap message is missing")]
     MissingMessage,
+    #[error("provider bootstrap message exceeds 16 KiB")]
+    MessageTooLarge,
     #[error("unsupported adapter bootstrap version {0}")]
     UnsupportedVersion(u32),
     #[error("adapter process instance ID is missing")]
@@ -105,6 +122,45 @@ pub enum LaunchMessageError {
     InvalidBindAddress(std::net::AddrParseError),
     #[error("adapter bind address must be loopback")]
     NonLoopbackAddress,
+    #[error("provider ready address must have a nonzero port")]
+    NonListeningAddress,
+    #[error("provider ready process instance does not match its launch")]
+    ProcessInstanceMismatch,
+    #[error("provider ready token does not match its launch")]
+    LaunchTokenMismatch,
+    #[error(transparent)]
+    InvalidToken(#[from] InvalidLaunchToken),
+}
+
+fn check_message_size(bytes: usize) -> Result<(), LaunchMessageError> {
+    if bytes as u64 > MAXIMUM_BOOTSTRAP_MESSAGE_BYTES {
+        return Err(LaunchMessageError::MessageTooLarge);
+    }
+    Ok(())
+}
+
+fn validate_identity(version: u32, process: &str, token: &str) -> Result<(), LaunchMessageError> {
+    if version != BOOTSTRAP_VERSION {
+        return Err(LaunchMessageError::UnsupportedVersion(version));
+    }
+    if process.is_empty() {
+        return Err(LaunchMessageError::MissingProcessInstanceId);
+    }
+    if token.is_empty() {
+        return Err(LaunchMessageError::MissingLaunchToken);
+    }
+    LaunchToken::new(token)?;
+    Ok(())
+}
+
+fn loopback_address(address: &str) -> Result<SocketAddr, LaunchMessageError> {
+    let address = address
+        .parse::<SocketAddr>()
+        .map_err(LaunchMessageError::InvalidBindAddress)?;
+    if !address.ip().is_loopback() {
+        return Err(LaunchMessageError::NonLoopbackAddress);
+    }
+    Ok(address)
 }
 
 #[derive(Clone, Debug)]
@@ -225,10 +281,6 @@ pub enum ServeError {
     Transport(#[from] tonic::transport::Error),
 }
 
-fn is_loopback(address: IpAddr) -> bool {
-    address.is_loopback()
-}
-
 #[cfg(test)]
 mod tests {
     use std::io::Cursor;
@@ -292,6 +344,42 @@ mod tests {
             interceptor.call(Request::new(())).unwrap_err().code(),
             Code::Unauthenticated
         );
+    }
+
+    #[test]
+    fn bootstrap_is_bounded_and_readiness_binds_the_launch() {
+        let launch = launch();
+        let mut ready = ReadyMessage {
+            bootstrap_version: BOOTSTRAP_VERSION,
+            process_instance_id: launch.process_instance_id.clone(),
+            address: "127.0.0.1:1234".into(),
+            launch_token: launch.launch_token.clone(),
+        };
+        super::parse_ready_message(&serde_json::to_vec(&ready).unwrap(), &launch).unwrap();
+        ready.process_instance_id = "another-process".into();
+        assert!(ready.validate_for(&launch).is_err());
+        ready.process_instance_id = launch.process_instance_id.clone();
+        ready.launch_token = "another-token".into();
+        assert!(ready.validate_for(&launch).is_err());
+        ready.launch_token = launch.launch_token.clone();
+        for address in ["127.0.0.1:0", "0.0.0.0:1234", "not-an-address"] {
+            ready.address = address.into();
+            assert!(ready.validate_for(&launch).is_err());
+        }
+        let oversized = vec![b' '; super::MAXIMUM_BOOTSTRAP_MESSAGE_BYTES as usize + 1];
+        assert!(matches!(
+            read_launch_request(Cursor::new(&oversized)),
+            Err(super::LaunchMessageError::MessageTooLarge)
+        ));
+        assert!(matches!(
+            super::parse_ready_message(&oversized, &launch),
+            Err(super::LaunchMessageError::MessageTooLarge)
+        ));
+        ready.address = "127.0.0.1:1234".into();
+        ready.process_instance_id = "x".repeat(super::MAXIMUM_BOOTSTRAP_MESSAGE_BYTES as usize);
+        let mut output = Vec::new();
+        assert!(write_ready_message(&mut output, &ready).is_err());
+        assert!(output.is_empty());
     }
 
     #[test]
