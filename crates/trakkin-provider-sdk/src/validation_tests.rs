@@ -141,6 +141,8 @@ fn mapping_unit_keys_are_canonical_opaque_and_byte_bounded() {
         "source://key :: episode=1",
         "source://key,other",
         "source://key\u{7f}",
+        "source://key\u{a0}other",
+        "source://key\u{85}other",
     ] {
         assert!(validation::mapping_unit_key(key).is_err());
     }
@@ -150,6 +152,15 @@ fn mapping_unit_keys_are_canonical_opaque_and_byte_bounded() {
     );
     validation::mapping_unit_key(&maximum).unwrap();
     assert!(validation::mapping_unit_key(&(maximum + "x")).is_err());
+}
+
+#[test]
+fn mapping_unit_key_parts_preserve_the_opaque_identity() {
+    let value = "org.themoviedb://movie/603::variant=1";
+    let key = crate::mapping::MappingUnitKey::parse(value).unwrap();
+    assert_eq!(key.as_str(), value);
+    assert_eq!(key.namespace(), "org.themoviedb");
+    assert_eq!(key.opaque(), "movie/603::variant=1");
 }
 
 #[test]

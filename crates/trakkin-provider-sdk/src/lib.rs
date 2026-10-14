@@ -1,4 +1,5 @@
 mod bootstrap;
+pub mod mapping;
 pub mod validation;
 
 pub use bootstrap::*;
