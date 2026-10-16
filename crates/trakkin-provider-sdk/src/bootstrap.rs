@@ -2,6 +2,7 @@ use std::{
     future::Future,
     io::{self, BufRead, Write},
     net::SocketAddr,
+    sync::Arc,
 };
 
 use crate::{
@@ -9,6 +10,7 @@ use crate::{
     v1::{
         ProtocolRange,
         adapter_service_server::{AdapterService, AdapterServiceServer},
+        completion_service_server::{CompletionService, CompletionServiceServer},
     },
 };
 use tokio::net::TcpListener;
@@ -16,7 +18,7 @@ use tokio_stream::wrappers::TcpListenerStream;
 use tonic::{
     Request, Status,
     metadata::{AsciiMetadataValue, MetadataValue},
-    service::Interceptor,
+    service::{Interceptor, interceptor::InterceptedService},
     transport::Server,
 };
 
@@ -24,6 +26,7 @@ pub const BOOTSTRAP_VERSION: u32 = 1;
 pub const MAXIMUM_BOOTSTRAP_MESSAGE_BYTES: u64 = 16 * 1024;
 pub const LAUNCH_TOKEN_HEADER: &str = "x-trakkin-launch-token";
 const ADAPTER_SERVICE_PATH_PREFIX: &str = "/trakkin.adapter.v1.AdapterService/";
+const COMPLETION_SERVICE_PATH_PREFIX: &str = "/trakkin.adapter.v1.CompletionService/";
 pub use crate::bootstrap_v1::{LaunchRequest, ReadyMessage};
 
 impl LaunchRequest {
@@ -222,6 +225,7 @@ pub fn supported_protocol_range() -> ProtocolRange {
 
 fn rpc_method(path: &str) -> &str {
     path.strip_prefix(ADAPTER_SERVICE_PATH_PREFIX)
+        .or_else(|| path.strip_prefix(COMPLETION_SERVICE_PATH_PREFIX))
         .filter(|method| !method.is_empty() && !method.contains('/'))
         .unwrap_or("Unknown")
 }
@@ -233,7 +237,7 @@ pub async fn serve_adapter<T, F, W>(
     shutdown: F,
 ) -> Result<(), ServeError>
 where
-    T: AdapterService,
+    T: AdapterService + CompletionService,
     F: Future<Output = ()>,
     W: Write,
 {
@@ -249,18 +253,31 @@ where
     };
     write_ready_message(&mut ready_writer, &ready)?;
     drop(ready_writer);
+    let adapter = Arc::new(adapter);
 
     Server::builder()
         .trace_fn(|request| {
             tracing::info_span!(
                 "provider.rpc",
                 rpc.system = "grpc",
-                rpc.service = "trakkin.adapter.v1.AdapterService",
+                rpc.service = if request
+                    .uri()
+                    .path()
+                    .starts_with(COMPLETION_SERVICE_PATH_PREFIX)
+                {
+                    "trakkin.adapter.v1.CompletionService"
+                } else {
+                    "trakkin.adapter.v1.AdapterService"
+                },
                 rpc.method = rpc_method(request.uri().path())
             )
         })
-        .add_service(AdapterServiceServer::with_interceptor(
-            adapter,
+        .add_service(InterceptedService::new(
+            AdapterServiceServer::from_arc(Arc::clone(&adapter)),
+            token.interceptor(),
+        ))
+        .add_service(InterceptedService::new(
+            CompletionServiceServer::from_arc(adapter),
             token.interceptor(),
         ))
         .serve_with_incoming_shutdown(TcpListenerStream::new(listener), shutdown)
@@ -390,7 +407,7 @@ mod tests {
     }
 
     #[test]
-    fn rpc_method_is_scoped_to_the_adapter_service() {
+    fn rpc_method_is_scoped_to_provider_services() {
         assert_eq!(
             rpc_method("/trakkin.adapter.v1.AdapterService/ReadCatalog"),
             "ReadCatalog"
@@ -405,5 +422,13 @@ mod tests {
             "Unknown"
         );
         assert_eq!(rpc_method(ADAPTER_SERVICE_PATH_PREFIX), "Unknown");
+        assert_eq!(
+            rpc_method("/trakkin.adapter.v1.CompletionService/PrepareCompletion"),
+            "PrepareCompletion"
+        );
+        assert_eq!(
+            rpc_method("/trakkin.adapter.v1.CompletionService/Nested/Method"),
+            "Unknown"
+        );
     }
 }

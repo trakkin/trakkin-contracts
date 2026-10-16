@@ -231,9 +231,8 @@ message CompletionAttemptOutcome {
 }
 
 message CompletionContext {
-  string operation_id = 1;
-  string session_id = 2;
-  string source_id = 3;
+  bytes operation_id = 1;
+  Key source_key = 2;
 }
 
 message DescribeCompletionRequest {
