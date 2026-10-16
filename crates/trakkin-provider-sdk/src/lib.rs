@@ -1,4 +1,5 @@
 mod bootstrap;
+pub mod completion;
 pub mod mapping;
 pub mod validation;
 
