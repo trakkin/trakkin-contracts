@@ -62,6 +62,20 @@ fn encode_json(value: serde_json::Value) -> Vec<u8> {
     value.to_string().into_bytes()
 }
 
+pub fn account_identity(account: &wire::Key) -> Result<model::Identity, WireError> {
+    crate::validation::key(account, "account")
+        .map_err(|_| WireError::InvalidModel(model::ModelError::InvalidIdentity))?;
+    if account.namespace.len() > 4096 || account.value.len() > 4096 {
+        return Err(WireError::LimitExceeded);
+    }
+    let value = serde_json::to_string(&(account.namespace.as_str(), account.value.as_slice()))
+        .map_err(|_| WireError::InvalidJson)?;
+    Ok(model::Identity::new(
+        model::Name::new("provider:account")?,
+        value,
+    )?)
+}
+
 impl TryFrom<wire::CompletionIdentity> for model::Identity {
     type Error = WireError;
 
@@ -723,6 +737,51 @@ mod tests {
 
     fn identity(value: &str) -> model::Identity {
         model::Identity::new(model::Name::new("fixture:id").unwrap(), value).unwrap()
+    }
+
+    #[test]
+    fn account_identity_is_stable_binary_safe_and_namespaced() {
+        let first = wire::Key {
+            namespace: "provider.account".to_owned(),
+            value: vec![0, 255, 1],
+        };
+        let identity = account_identity(&first).unwrap();
+        assert_eq!(identity, account_identity(&first).unwrap());
+        assert_eq!(identity.namespace().as_str(), "provider:account");
+        for key in [
+            wire::Key {
+                namespace: "other.account".to_owned(),
+                ..first.clone()
+            },
+            wire::Key {
+                value: vec![0, 255, 2],
+                ..first.clone()
+            },
+        ] {
+            assert_ne!(identity, account_identity(&key).unwrap());
+        }
+        let reconstructed: (String, Vec<u8>) = serde_json::from_str(identity.value()).unwrap();
+        assert_eq!(reconstructed, (first.namespace, first.value));
+    }
+
+    #[test]
+    fn account_identity_rejects_empty_and_unbounded_keys() {
+        for account in [
+            wire::Key {
+                namespace: String::new(),
+                value: vec![1],
+            },
+            wire::Key {
+                namespace: "provider.account".to_owned(),
+                value: Vec::new(),
+            },
+            wire::Key {
+                namespace: "provider.account".to_owned(),
+                value: vec![255; 4097],
+            },
+        ] {
+            assert!(account_identity(&account).is_err());
+        }
     }
 
     fn observation() -> model::Observation {
