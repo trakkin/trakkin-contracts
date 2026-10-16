@@ -1,0 +1,342 @@
+syntax = "proto3";
+
+package trakkin.adapter.v1;
+
+import "google/protobuf/empty.proto";
+import "trakkin/adapter/v1/adapter.proto";
+
+service CompletionService {
+  rpc DescribeCompletion(DescribeCompletionRequest) returns (DescribeCompletionResponse);
+  rpc ReadCompletion(ReadCompletionRequest) returns (ReadCompletionResponse);
+  rpc ResolveCompletionDestinations(ResolveCompletionDestinationsRequest) returns (ResolveCompletionDestinationsResponse);
+  rpc PrepareCompletion(PrepareCompletionRequest) returns (PrepareCompletionResponse);
+  rpc ExecuteCompletion(ExecuteCompletionRequest) returns (ExecuteCompletionResponse);
+  rpc ReconcileCompletion(ReconcileCompletionRequest) returns (ReconcileCompletionResponse);
+}
+
+message CompletionIdentity {
+  string namespace = 1;
+  string value = 2;
+}
+
+message CompletionSubject {
+  CompletionIdentity identity = 1;
+  repeated string classifications = 2;
+  string role = 3;
+  string label = 4;
+}
+
+enum CompletionOrdering {
+  COMPLETION_ORDERING_UNSPECIFIED = 0;
+  COMPLETION_ORDERING_ORDERED = 1;
+  COMPLETION_ORDERING_UNORDERED = 2;
+}
+
+message CompletionDomain {
+  CompletionIdentity identity = 1;
+  string revision = 2;
+  string unit = 3;
+  CompletionOrdering ordering = 4;
+  repeated CompletionIdentity units = 5;
+  bool closed = 6;
+}
+
+message CompletionItems {
+  repeated CompletionIdentity completed = 1;
+}
+
+message CompletionProgress {
+  oneof value {
+    CompletionItems items = 1;
+    uint32 prefix = 2;
+    uint32 cardinality = 3;
+  }
+}
+
+enum CompletionReadQuality {
+  COMPLETION_READ_QUALITY_UNSPECIFIED = 0;
+  COMPLETION_READ_QUALITY_COMPLETE = 1;
+  COMPLETION_READ_QUALITY_PARTIAL = 2;
+  COMPLETION_READ_QUALITY_UNREADABLE = 3;
+  COMPLETION_READ_QUALITY_STALE = 4;
+}
+
+message CompletionObservation {
+  CompletionIdentity origin = 1;
+  CompletionIdentity account = 2;
+  CompletionIdentity subject = 3;
+  string behavior_revision = 4;
+  optional string remote_revision = 5;
+  sint64 acquired_at_milliseconds = 6;
+  CompletionDomain domain = 7;
+  CompletionReadQuality quality = 8;
+  oneof presence {
+    CompletionProgress present = 9;
+    google.protobuf.Empty cleared = 10;
+    google.protobuf.Empty missing = 11;
+    google.protobuf.Empty meaningful_absence = 12;
+  }
+  bytes native_value_json = 13;
+}
+
+message CompletionEffectScope {
+  CompletionIdentity account = 1;
+  CompletionIdentity subject = 2;
+  string field = 3;
+}
+
+message CompletionEffectGroup {
+  CompletionIdentity account = 1;
+  CompletionIdentity subject = 2;
+  string group = 3;
+}
+
+message CompletionBeforeValue {
+  oneof value {
+    bytes known_json = 1;
+    google.protobuf.Empty missing = 2;
+    google.protobuf.Empty unknown = 3;
+  }
+}
+
+message CompletionSetter {
+  CompletionDomain domain = 1;
+  CompletionProgress before = 2;
+  CompletionProgress after = 3;
+}
+
+message CompletionMerge {
+  CompletionDomain domain = 1;
+  CompletionItems before = 2;
+  CompletionItems additions = 3;
+}
+
+message CompletionValueSetter {
+  CompletionBeforeValue before = 1;
+  bytes after_json = 2;
+}
+
+message CompletionEffect {
+  CompletionEffectScope scope = 1;
+  string group = 2;
+  oneof change {
+    CompletionSetter set_completion = 3;
+    CompletionMerge merge_items = 4;
+    CompletionValueSetter set_value = 5;
+    bytes append_json = 6;
+  }
+}
+
+enum CompletionProtectionKind {
+  COMPLETION_PROTECTION_KIND_UNSPECIFIED = 0;
+  COMPLETION_PROTECTION_KIND_CONDITIONAL = 1;
+  COMPLETION_PROTECTION_KIND_MONOTONE_MERGE = 2;
+  COMPLETION_PROTECTION_KIND_BEST_EFFORT = 3;
+}
+
+message CompletionConditionalProtection {
+  string token = 1;
+  repeated CompletionEffectGroup groups = 2;
+}
+
+message CompletionProtection {
+  oneof value {
+    CompletionConditionalProtection conditional = 1;
+    google.protobuf.Empty monotone_merge = 2;
+    google.protobuf.Empty best_effort = 3;
+  }
+}
+
+message CompletionDeduplication {
+  CompletionIdentity key = 1;
+  CompletionIdentity scope = 2;
+  sint64 valid_until_milliseconds = 3;
+}
+
+message CompletionReplay {
+  oneof value {
+    google.protobuf.Empty unsupported = 1;
+    CompletionDeduplication deduplicated = 2;
+  }
+}
+
+message CompletionOperationCapability {
+  string class = 1;
+  repeated string effect_fields = 2;
+  repeated CompletionProtectionKind protection = 3;
+  bool deduplication = 4;
+  repeated string reconciliation = 5;
+}
+
+message CompletionBehavior {
+  string revision = 1;
+  repeated string subject_roles = 2;
+  repeated string units = 3;
+  repeated CompletionOperationCapability operations = 4;
+}
+
+message CompletionCommand {
+  string method = 1;
+  bytes parameters_json = 2;
+}
+
+message PreparedCompletionOperation {
+  CompletionIdentity identity = 1;
+  string class = 2;
+  string behavior_revision = 3;
+  sint64 prepared_at_milliseconds = 4;
+  sint64 expires_at_milliseconds = 5;
+  repeated CompletionEffect effects = 6;
+  CompletionProtection protection = 7;
+  CompletionReplay replay = 8;
+  optional string reconciliation = 9;
+  CompletionCommand command = 10;
+}
+
+message CompletionTerminalEvidence {
+  string kind = 1;
+  CompletionIdentity identity = 2;
+}
+
+enum CompletionEffectKnowledge {
+  COMPLETION_EFFECT_KNOWLEDGE_UNSPECIFIED = 0;
+  COMPLETION_EFFECT_KNOWLEDGE_UNKNOWN = 1;
+  COMPLETION_EFFECT_KNOWLEDGE_NOT_APPLIED = 2;
+  COMPLETION_EFFECT_KNOWLEDGE_APPLIED = 3;
+  COMPLETION_EFFECT_KNOWLEDGE_PARTIALLY_APPLIED = 4;
+}
+
+message CompletionEffectOutcome {
+  CompletionEffectScope scope = 1;
+  CompletionEffectKnowledge knowledge = 2;
+}
+
+enum CompletionSatisfaction {
+  COMPLETION_SATISFACTION_UNSPECIFIED = 0;
+  COMPLETION_SATISFACTION_UNKNOWN = 1;
+  COMPLETION_SATISFACTION_SATISFIED = 2;
+  COMPLETION_SATISFACTION_UNSATISFIED = 3;
+}
+
+message CompletionAttemptOutcome {
+  CompletionIdentity operation = 1;
+  CompletionIdentity attempt = 2;
+  oneof lifecycle {
+    google.protobuf.Empty not_dispatched = 3;
+    google.protobuf.Empty may_still_execute = 4;
+    CompletionTerminalEvidence terminal = 5;
+  }
+  repeated CompletionEffectOutcome effects = 6;
+  CompletionSatisfaction satisfaction = 7;
+}
+
+message CompletionContext {
+  string operation_id = 1;
+  string session_id = 2;
+  string source_id = 3;
+}
+
+message DescribeCompletionRequest {
+  CompletionContext context = 1;
+  repeated CompletionIdentity subjects = 2;
+}
+
+message DescribeCompletionResponse {
+  oneof result {
+    CompletionBehavior behavior = 1;
+    OperationFailure failure = 2;
+  }
+}
+
+message ReadCompletionRequest {
+  CompletionContext context = 1;
+  repeated CompletionIdentity subjects = 2;
+}
+
+message CompletionReadResult {
+  repeated CompletionSubject subjects = 1;
+  repeated CompletionObservation observations = 2;
+}
+
+message ReadCompletionResponse {
+  oneof result {
+    CompletionReadResult state = 1;
+    OperationFailure failure = 2;
+  }
+}
+
+message ResolveCompletionDestinationsRequest {
+  CompletionContext context = 1;
+  repeated CompletionSubject subjects = 2;
+}
+
+message CompletionCandidates {
+  repeated CompletionSubject subjects = 1;
+}
+
+message CompletionDestinationResolution {
+  CompletionIdentity requested = 1;
+  oneof result {
+    CompletionSubject exact = 2;
+    CompletionCandidates ambiguous = 3;
+    google.protobuf.Empty unavailable = 4;
+  }
+}
+
+message CompletionDestinationResolutions {
+  repeated CompletionDestinationResolution resolutions = 1;
+}
+
+message ResolveCompletionDestinationsResponse {
+  oneof result {
+    CompletionDestinationResolutions destinations = 1;
+    OperationFailure failure = 2;
+  }
+}
+
+message CompletionIntention {
+  CompletionEffectScope scope = 1;
+  CompletionDomain domain = 2;
+  CompletionProgress baseline = 3;
+  CompletionProgress desired = 4;
+}
+
+message PrepareCompletionRequest {
+  CompletionContext context = 1;
+  CompletionIdentity operation = 2;
+  repeated CompletionIntention intentions = 3;
+}
+
+message PrepareCompletionResponse {
+  oneof result {
+    PreparedCompletionOperation operation = 1;
+    OperationFailure failure = 2;
+  }
+}
+
+message ExecuteCompletionRequest {
+  CompletionContext context = 1;
+  PreparedCompletionOperation operation = 2;
+  CompletionIdentity attempt = 3;
+}
+
+message ExecuteCompletionResponse {
+  oneof result {
+    CompletionAttemptOutcome outcome = 1;
+    OperationFailure failure = 2;
+  }
+}
+
+message ReconcileCompletionRequest {
+  CompletionContext context = 1;
+  PreparedCompletionOperation operation = 2;
+  CompletionIdentity attempt = 3;
+  CompletionAttemptOutcome previous = 4;
+}
+
+message ReconcileCompletionResponse {
+  oneof result {
+    CompletionAttemptOutcome outcome = 1;
+    OperationFailure failure = 2;
+  }
+}

@@ -15,38 +15,42 @@ fn descriptor_contains_provider_contracts() {
         .iter()
         .flat_map(|file| file.service.iter())
         .collect::<Vec<_>>();
-    assert_eq!(services.len(), 1);
-    assert_eq!(services[0].name.as_deref(), Some("AdapterService"));
+    assert_eq!(services.len(), 2);
 
-    let adapter = descriptor
+    for adapter in descriptor
         .file
         .iter()
-        .find(|file| file.package.as_deref() == Some("trakkin.adapter.v1"))
-        .unwrap();
-    for message in &adapter.message_type {
-        let field_numbers = message
-            .field
-            .iter()
-            .map(|field| field.number.unwrap())
-            .collect::<Vec<_>>();
-        let expected = (1..=field_numbers.len() as i32).collect::<Vec<_>>();
-        assert_eq!(field_numbers, expected, "{:?} field tags", message.name);
-    }
-    for enumeration in &adapter.enum_type {
-        let value_numbers = enumeration
-            .value
-            .iter()
-            .map(|value| value.number.unwrap())
-            .collect::<Vec<_>>();
-        let expected = (0..value_numbers.len() as i32).collect::<Vec<_>>();
-        assert_eq!(
-            value_numbers, expected,
-            "{:?} enum values",
-            enumeration.name
-        );
+        .filter(|file| file.package.as_deref() == Some("trakkin.adapter.v1"))
+    {
+        for message in &adapter.message_type {
+            let field_numbers = message
+                .field
+                .iter()
+                .map(|field| field.number.unwrap())
+                .collect::<Vec<_>>();
+            let expected = (1..=field_numbers.len() as i32).collect::<Vec<_>>();
+            assert_eq!(field_numbers, expected, "{:?} field tags", message.name);
+        }
+        for enumeration in &adapter.enum_type {
+            let value_numbers = enumeration
+                .value
+                .iter()
+                .map(|value| value.number.unwrap())
+                .collect::<Vec<_>>();
+            let expected = (0..value_numbers.len() as i32).collect::<Vec<_>>();
+            assert_eq!(
+                value_numbers, expected,
+                "{:?} enum values",
+                enumeration.name
+            );
+        }
     }
 
-    let methods = services[0]
+    let adapter_service = services
+        .iter()
+        .find(|service| service.name.as_deref() == Some("AdapterService"))
+        .unwrap();
+    let methods = adapter_service
         .method
         .iter()
         .filter_map(|method| method.name.as_deref())
@@ -89,6 +93,57 @@ fn descriptor_contains_provider_contracts() {
         .filter_map(|message| message.name.as_deref())
         .collect::<Vec<_>>();
     assert_eq!(messages, ["LaunchRequest", "ReadyMessage"]);
+
+    let completion = services
+        .iter()
+        .find(|service| service.name.as_deref() == Some("CompletionService"))
+        .unwrap();
+    assert_eq!(
+        completion
+            .method
+            .iter()
+            .filter_map(|method| method.name.as_deref())
+            .collect::<Vec<_>>(),
+        [
+            "DescribeCompletion",
+            "ReadCompletion",
+            "ResolveCompletionDestinations",
+            "PrepareCompletion",
+            "ExecuteCompletion",
+            "ReconcileCompletion",
+        ]
+    );
+}
+
+#[test]
+fn completion_wire_preserves_zero_progress_and_explicit_presence() {
+    use crate::v1::{
+        CompletionObservation, CompletionProgress, completion_observation, completion_progress,
+    };
+
+    for value in [
+        completion_progress::Value::Prefix(0),
+        completion_progress::Value::Cardinality(0),
+    ] {
+        let progress = CompletionProgress { value: Some(value) };
+        let decoded = CompletionProgress::decode(progress.encode_to_vec().as_slice()).unwrap();
+        assert_eq!(decoded, progress);
+        assert_ne!(decoded, CompletionProgress::default());
+    }
+    for presence in [
+        completion_observation::Presence::Missing(()),
+        completion_observation::Presence::Cleared(()),
+        completion_observation::Presence::MeaningfulAbsence(()),
+    ] {
+        let observation = CompletionObservation {
+            presence: Some(presence),
+            ..Default::default()
+        };
+        assert_eq!(
+            CompletionObservation::decode(observation.encode_to_vec().as_slice()).unwrap(),
+            observation
+        );
+    }
 }
 
 #[test]
