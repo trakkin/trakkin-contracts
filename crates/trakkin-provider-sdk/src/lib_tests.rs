@@ -71,7 +71,6 @@ fn descriptor_contains_provider_contracts() {
             "ReadCatalog",
             "ReadState",
             "ReadTargetedState",
-            "WriteTargetedState",
             "ReadAsset",
             "CancelOperation",
             "Shutdown",

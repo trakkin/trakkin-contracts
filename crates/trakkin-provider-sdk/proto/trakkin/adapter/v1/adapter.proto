@@ -18,7 +18,6 @@ service AdapterService {
   rpc ReadCatalog(ReadCatalogRequest) returns (stream ReadCatalogResponse);
   rpc ReadState(ReadStateRequest) returns (stream ReadStateResponse);
   rpc ReadTargetedState(ReadTargetedStateRequest) returns (ReadTargetedStateResponse);
-  rpc WriteTargetedState(WriteTargetedStateRequest) returns (WriteTargetedStateResponse);
   rpc ReadAsset(ReadAssetRequest) returns (ReadAssetResponse);
   rpc CancelOperation(CancelOperationRequest) returns (CancelOperationResponse);
   rpc Shutdown(ShutdownRequest) returns (ShutdownResponse);
