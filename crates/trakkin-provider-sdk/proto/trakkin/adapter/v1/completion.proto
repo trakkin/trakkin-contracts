@@ -120,6 +120,15 @@ message CompletionBeforeValue {
   }
 }
 
+message CompletionFieldObservation {
+  CompletionEffectScope scope = 1;
+  string behavior_revision = 2;
+  optional string remote_revision = 3;
+  sint64 acquired_at_milliseconds = 4;
+  CompletionReadQuality quality = 5;
+  CompletionBeforeValue value = 6;
+}
+
 message CompletionSetter {
   CompletionDomain domain = 1;
   CompletionProgress before = 2;
@@ -278,6 +287,7 @@ message CompletionReadResult {
   repeated CompletionObservation observations = 2;
   repeated CompletionResourceAccess access = 3;
   repeated CompletionDomainReferences references = 4;
+  repeated CompletionFieldObservation field_observations = 5;
 }
 
 message ReadCompletionResponse {

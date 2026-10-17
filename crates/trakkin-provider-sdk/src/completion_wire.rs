@@ -62,6 +62,25 @@ fn encode_json(value: serde_json::Value) -> Vec<u8> {
     value.to_string().into_bytes()
 }
 
+fn decode_quality(value: i32, field: &'static str) -> Result<model::ReadQuality, WireError> {
+    match wire::CompletionReadQuality::try_from(value) {
+        Ok(wire::CompletionReadQuality::Complete) => Ok(model::ReadQuality::Complete),
+        Ok(wire::CompletionReadQuality::Partial) => Ok(model::ReadQuality::Partial),
+        Ok(wire::CompletionReadQuality::Unreadable) => Ok(model::ReadQuality::Unreadable),
+        Ok(wire::CompletionReadQuality::Stale) => Ok(model::ReadQuality::Stale),
+        _ => Err(WireError::InvalidEnum(field)),
+    }
+}
+
+fn encode_quality(value: model::ReadQuality) -> i32 {
+    match value {
+        model::ReadQuality::Complete => wire::CompletionReadQuality::Complete as i32,
+        model::ReadQuality::Partial => wire::CompletionReadQuality::Partial as i32,
+        model::ReadQuality::Unreadable => wire::CompletionReadQuality::Unreadable as i32,
+        model::ReadQuality::Stale => wire::CompletionReadQuality::Stale as i32,
+    }
+}
+
 pub fn account_identity(account: &wire::Key) -> Result<model::Identity, WireError> {
     crate::validation::key(account, "account")
         .map_err(|_| WireError::InvalidModel(model::ModelError::InvalidIdentity))?;
@@ -258,13 +277,7 @@ impl TryFrom<wire::CompletionObservation> for model::Observation {
 
     fn try_from(value: wire::CompletionObservation) -> Result<Self, Self::Error> {
         use wire::completion_observation::Presence;
-        let quality = match wire::CompletionReadQuality::try_from(value.quality) {
-            Ok(wire::CompletionReadQuality::Complete) => model::ReadQuality::Complete,
-            Ok(wire::CompletionReadQuality::Partial) => model::ReadQuality::Partial,
-            Ok(wire::CompletionReadQuality::Unreadable) => model::ReadQuality::Unreadable,
-            Ok(wire::CompletionReadQuality::Stale) => model::ReadQuality::Stale,
-            _ => return Err(WireError::InvalidEnum("observation.quality")),
-        };
+        let quality = decode_quality(value.quality, "observation.quality")?;
         let decoded = Self {
             origin: required(value.origin, "observation.origin")?.try_into()?,
             account: required(value.account, "observation.account")?.try_into()?,
@@ -300,12 +313,7 @@ impl From<model::Observation> for wire::CompletionObservation {
             remote_revision: value.remote_revision,
             acquired_at_milliseconds: value.acquired_at_milliseconds,
             domain: Some(value.domain.into()),
-            quality: match value.quality {
-                model::ReadQuality::Complete => wire::CompletionReadQuality::Complete as i32,
-                model::ReadQuality::Partial => wire::CompletionReadQuality::Partial as i32,
-                model::ReadQuality::Unreadable => wire::CompletionReadQuality::Unreadable as i32,
-                model::ReadQuality::Stale => wire::CompletionReadQuality::Stale as i32,
-            },
+            quality: encode_quality(value.quality),
             presence: Some(match value.presence {
                 model::Presence::Present(progress) => Presence::Present(progress.into()),
                 model::Presence::Missing => Presence::Missing(()),
@@ -334,6 +342,36 @@ impl From<operation::EffectScope> for wire::CompletionEffectScope {
             account: Some(value.account.into()),
             subject: Some(value.subject.into()),
             field: value.field.as_str().to_owned(),
+        }
+    }
+}
+
+impl TryFrom<wire::CompletionFieldObservation> for operation::FieldObservation {
+    type Error = WireError;
+
+    fn try_from(value: wire::CompletionFieldObservation) -> Result<Self, Self::Error> {
+        let decoded = Self {
+            scope: required(value.scope, "field_observation.scope")?.try_into()?,
+            behavior_revision: value.behavior_revision,
+            remote_revision: value.remote_revision,
+            acquired_at_milliseconds: value.acquired_at_milliseconds,
+            quality: decode_quality(value.quality, "field_observation.quality")?,
+            value: decode_before(required(value.value, "field_observation.value")?)?,
+        };
+        decoded.validate()?;
+        Ok(decoded)
+    }
+}
+
+impl From<operation::FieldObservation> for wire::CompletionFieldObservation {
+    fn from(value: operation::FieldObservation) -> Self {
+        Self {
+            scope: Some(value.scope.into()),
+            behavior_revision: value.behavior_revision,
+            remote_revision: value.remote_revision,
+            acquired_at_milliseconds: value.acquired_at_milliseconds,
+            quality: encode_quality(value.quality),
+            value: Some(value.value.into()),
         }
     }
 }
@@ -879,6 +917,83 @@ mod tests {
                 completed: BTreeSet::from([identity("track")]),
             }),
             native_value: serde_json::json!({"plays": 3}),
+        }
+    }
+
+    #[test]
+    fn native_field_observations_roundtrip_and_reject_malformed_wire() {
+        use prost::Message;
+        let source = observation();
+        let mut field = operation::FieldObservation {
+            scope: operation::EffectScope {
+                account: source.account,
+                subject: source.subject,
+                field: model::Name::new("state:status").unwrap(),
+            },
+            behavior_revision: "1".to_owned(),
+            remote_revision: Some("remote-1".to_owned()),
+            acquired_at_milliseconds: 100,
+            quality: model::ReadQuality::Complete,
+            value: operation::BeforeValue::Known(serde_json::Value::Null),
+        };
+        for quality in [
+            model::ReadQuality::Complete,
+            model::ReadQuality::Partial,
+            model::ReadQuality::Unreadable,
+            model::ReadQuality::Stale,
+        ] {
+            for value in [
+                operation::BeforeValue::Known(serde_json::Value::Null),
+                operation::BeforeValue::Missing,
+                operation::BeforeValue::Unknown,
+            ] {
+                field.quality = quality;
+                field.value = value;
+                let encoded = wire::CompletionFieldObservation::from(field.clone()).encode_to_vec();
+                assert_eq!(
+                    operation::FieldObservation::try_from(
+                        wire::CompletionFieldObservation::decode(encoded.as_slice()).unwrap()
+                    )
+                    .unwrap(),
+                    field
+                );
+            }
+        }
+        let valid = wire::CompletionFieldObservation::from(field);
+        let mut missing_scope = valid.clone();
+        missing_scope.scope = None;
+        let mut missing_value = valid.clone();
+        missing_value.value = None;
+        let mut missing_quality = valid.clone();
+        missing_quality.quality = 0;
+        let mut unknown_quality = valid.clone();
+        unknown_quality.quality = 900;
+        let mut invalid_revision = valid.clone();
+        invalid_revision.behavior_revision.clear();
+        let mut invalid_json = valid.clone();
+        invalid_json.value = Some(wire::CompletionBeforeValue {
+            value: Some(wire::completion_before_value::Value::KnownJson(
+                b"invalid".to_vec(),
+            )),
+        });
+        let mut oversized = valid;
+        oversized.value = Some(wire::CompletionBeforeValue {
+            value: Some(wire::completion_before_value::Value::KnownJson(vec![
+                b' ';
+                MAXIMUM_JSON_BYTES
+                    + 1
+            ])),
+        });
+        for invalid in [
+            missing_scope,
+            missing_value,
+            missing_quality,
+            unknown_quality,
+            invalid_revision,
+            invalid_json,
+            oversized,
+        ] {
+            assert!(operation::FieldObservation::try_from(invalid).is_err());
         }
     }
 

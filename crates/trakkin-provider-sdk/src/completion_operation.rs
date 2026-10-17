@@ -3,10 +3,11 @@ use std::fmt;
 
 use serde::{Deserialize, Serialize};
 
-use crate::completion::{Domain, Identity, ModelError, Name, Progress};
+use crate::completion::{Domain, Identity, ModelError, Name, Progress, ReadQuality};
 
 pub const MAXIMUM_EFFECTS: usize = 256;
 pub const MAXIMUM_COMMAND_BYTES: usize = 65_536;
+pub const MAXIMUM_FIELD_VALUE_BYTES: usize = 65_536;
 
 #[derive(Clone, Debug, Eq, PartialEq, Ord, PartialOrd, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -57,6 +58,33 @@ pub enum BeforeValue {
     Known(serde_json::Value),
     Missing,
     Unknown,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct FieldObservation {
+    pub scope: EffectScope,
+    pub behavior_revision: String,
+    pub remote_revision: Option<String>,
+    pub acquired_at_milliseconds: i64,
+    pub quality: ReadQuality,
+    pub value: BeforeValue,
+}
+
+impl FieldObservation {
+    pub fn validate(&self) -> Result<(), OperationError> {
+        if !valid_revision(&self.behavior_revision)
+            || self
+                .remote_revision
+                .as_ref()
+                .is_some_and(|revision| !valid_revision(revision))
+            || self.acquired_at_milliseconds < 0
+            || matches!(&self.value, BeforeValue::Known(value) if value.to_string().len() > MAXIMUM_FIELD_VALUE_BYTES)
+        {
+            return Err(OperationError::InvalidFieldObservation);
+        }
+        Ok(())
+    }
 }
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
@@ -414,6 +442,8 @@ impl AttemptOutcome {
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq, thiserror::Error)]
 pub enum OperationError {
+    #[error("native field observation contains invalid metadata or an oversized value")]
+    InvalidFieldObservation,
     #[error(transparent)]
     InvalidModel(#[from] ModelError),
     #[error("invalid or duplicate operation capability")]
@@ -458,6 +488,62 @@ mod tests {
     }
     fn identity(value: &str) -> Identity {
         Identity::new(name("fixture:id"), value).unwrap()
+    }
+
+    #[test]
+    fn native_field_observations_preserve_absence_quality_and_revision() {
+        let mut observation = FieldObservation {
+            scope: EffectScope {
+                account: identity("account"),
+                subject: identity("edition"),
+                field: name("state:status"),
+            },
+            behavior_revision: "behavior-1".to_owned(),
+            remote_revision: Some("native-1".to_owned()),
+            acquired_at_milliseconds: 10,
+            quality: ReadQuality::Complete,
+            value: BeforeValue::Known(serde_json::Value::Null),
+        };
+        for value in [
+            BeforeValue::Known(serde_json::Value::Null),
+            BeforeValue::Known(serde_json::json!("reading")),
+            BeforeValue::Missing,
+            BeforeValue::Unknown,
+        ] {
+            observation.value = value;
+            observation.validate().unwrap();
+            assert_eq!(
+                serde_json::from_slice::<FieldObservation>(
+                    &serde_json::to_vec(&observation).unwrap()
+                )
+                .unwrap(),
+                observation
+            );
+        }
+        observation.value =
+            BeforeValue::Known(serde_json::json!("x".repeat(MAXIMUM_FIELD_VALUE_BYTES)));
+        assert_eq!(
+            observation.validate(),
+            Err(OperationError::InvalidFieldObservation)
+        );
+        observation.value = BeforeValue::Missing;
+        observation.remote_revision = Some(String::new());
+        assert_eq!(
+            observation.validate(),
+            Err(OperationError::InvalidFieldObservation)
+        );
+        observation.remote_revision = None;
+        observation.acquired_at_milliseconds = -1;
+        assert_eq!(
+            observation.validate(),
+            Err(OperationError::InvalidFieldObservation)
+        );
+        observation.acquired_at_milliseconds = 10;
+        observation.behavior_revision.clear();
+        assert_eq!(
+            observation.validate(),
+            Err(OperationError::InvalidFieldObservation)
+        );
     }
 
     fn fixture() -> (Behavior, PreparedOperation) {
