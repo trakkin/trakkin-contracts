@@ -41,6 +41,17 @@ message CompletionDomain {
   bool closed = 6;
 }
 
+message CompletionUnitReference {
+  CompletionIdentity unit = 1;
+  string reference = 2;
+}
+
+message CompletionDomainReferences {
+  CompletionIdentity subject = 1;
+  CompletionDomain domain = 2;
+  repeated CompletionUnitReference units = 3;
+}
+
 message CompletionItems {
   repeated CompletionIdentity completed = 1;
 }
@@ -266,6 +277,7 @@ message CompletionReadResult {
   repeated CompletionSubject subjects = 1;
   repeated CompletionObservation observations = 2;
   repeated CompletionResourceAccess access = 3;
+  repeated CompletionDomainReferences references = 4;
 }
 
 message ReadCompletionResponse {

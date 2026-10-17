@@ -164,6 +164,47 @@ impl From<model::Domain> for wire::CompletionDomain {
     }
 }
 
+impl TryFrom<wire::CompletionDomainReferences> for model::DomainReferences {
+    type Error = WireError;
+
+    fn try_from(value: wire::CompletionDomainReferences) -> Result<Self, Self::Error> {
+        if value.units.len() > MAXIMUM_COLLECTION_ITEMS {
+            return Err(WireError::LimitExceeded);
+        }
+        Ok(Self::new(
+            required(value.subject, "references.subject")?.try_into()?,
+            required(value.domain, "references.domain")?.try_into()?,
+            value
+                .units
+                .into_iter()
+                .map(|binding| {
+                    Ok(model::UnitReference {
+                        unit: required(binding.unit, "references.unit")?.try_into()?,
+                        reference: binding.reference,
+                    })
+                })
+                .collect::<Result<_, WireError>>()?,
+        )?)
+    }
+}
+
+impl From<model::DomainReferences> for wire::CompletionDomainReferences {
+    fn from(value: model::DomainReferences) -> Self {
+        let (subject, domain, units) = value.into_parts();
+        Self {
+            subject: Some(subject.into()),
+            domain: Some(domain.into()),
+            units: units
+                .into_iter()
+                .map(|binding| wire::CompletionUnitReference {
+                    unit: Some(binding.unit.into()),
+                    reference: binding.reference,
+                })
+                .collect(),
+        }
+    }
+}
+
 impl TryFrom<wire::CompletionItems> for BTreeSet<model::Identity> {
     type Error = WireError;
 
@@ -838,6 +879,48 @@ mod tests {
                 completed: BTreeSet::from([identity("track")]),
             }),
             native_value: serde_json::json!({"plays": 3}),
+        }
+    }
+
+    #[test]
+    fn completion_references_roundtrip_and_reject_malformed_wire() {
+        use prost::Message;
+
+        let source = observation();
+        let value = model::DomainReferences::new(
+            source.subject,
+            source.domain,
+            vec![model::UnitReference {
+                unit: identity("track"),
+                reference: "recording://track".to_owned(),
+            }],
+        )
+        .unwrap();
+        let wire = wire::CompletionDomainReferences::from(value.clone());
+        let decoded =
+            wire::CompletionDomainReferences::decode(wire.encode_to_vec().as_slice()).unwrap();
+        assert_eq!(model::DomainReferences::try_from(decoded).unwrap(), value);
+        let mut missing_subject = wire.clone();
+        missing_subject.subject = None;
+        let mut missing_domain = wire.clone();
+        missing_domain.domain = None;
+        let mut missing_unit = wire.clone();
+        missing_unit.units[0].unit = None;
+        let mut foreign_unit = wire.clone();
+        foreign_unit.units[0].unit = Some(identity("foreign").into());
+        let mut duplicate = wire.clone();
+        duplicate.units.push(duplicate.units[0].clone());
+        let mut oversized = wire;
+        oversized.units[0].reference = "x".repeat(4097);
+        for invalid in [
+            missing_subject,
+            missing_domain,
+            missing_unit,
+            foreign_unit,
+            duplicate,
+            oversized,
+        ] {
+            assert!(model::DomainReferences::try_from(invalid).is_err());
         }
     }
 

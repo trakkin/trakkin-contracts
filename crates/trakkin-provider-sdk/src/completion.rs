@@ -276,6 +276,93 @@ pub enum Presence {
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
+pub struct UnitReference {
+    pub unit: Identity,
+    pub reference: String,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[serde(try_from = "DomainReferencesData")]
+pub struct DomainReferences {
+    subject: Identity,
+    domain: Domain,
+    units: Vec<UnitReference>,
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct DomainReferencesData {
+    subject: Identity,
+    domain: Domain,
+    units: Vec<UnitReference>,
+}
+
+impl DomainReferences {
+    pub fn new(
+        subject: Identity,
+        domain: Domain,
+        mut units: Vec<UnitReference>,
+    ) -> Result<Self, ModelError> {
+        if units.len() != domain.units().len() {
+            return Err(ModelError::InvalidReferenceBinding);
+        }
+        let mut bytes = 0_usize;
+        let mut identities = BTreeSet::new();
+        let mut references = BTreeSet::new();
+        for binding in &units {
+            bytes = bytes
+                .checked_add(
+                    binding.reference.len()
+                        + binding.unit.namespace().as_str().len()
+                        + binding.unit.value().len(),
+                )
+                .filter(|size| *size <= 4 * 1024 * 1024)
+                .ok_or(ModelError::InvalidReferenceBinding)?;
+            if binding.reference.is_empty()
+                || binding.reference.len() > 4096
+                || binding.reference.chars().any(char::is_control)
+                || !identities.insert(&binding.unit)
+                || !references.insert(&binding.reference)
+            {
+                return Err(ModelError::InvalidReferenceBinding);
+            }
+        }
+        if identities != domain.units().iter().collect() {
+            return Err(ModelError::InvalidReferenceBinding);
+        }
+        units.sort_by(|left, right| left.unit.cmp(&right.unit));
+        Ok(Self {
+            subject,
+            domain,
+            units,
+        })
+    }
+
+    pub fn subject(&self) -> &Identity {
+        &self.subject
+    }
+    pub fn domain(&self) -> &Domain {
+        &self.domain
+    }
+    pub fn units(&self) -> &[UnitReference] {
+        &self.units
+    }
+
+    pub fn into_parts(self) -> (Identity, Domain, Vec<UnitReference>) {
+        (self.subject, self.domain, self.units)
+    }
+}
+
+impl TryFrom<DomainReferencesData> for DomainReferences {
+    type Error = ModelError;
+
+    fn try_from(value: DomainReferencesData) -> Result<Self, Self::Error> {
+        Self::new(value.subject, value.domain, value.units)
+    }
+}
+
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct Observation {
     pub origin: Identity,
     pub account: Identity,
@@ -324,6 +411,10 @@ pub enum ModelError {
     DuplicateUnit,
     #[error("progress references an unknown unit")]
     UnknownUnit,
+    #[error(
+        "native references must bind every domain unit exactly once with bounded distinct references"
+    )]
+    InvalidReferenceBinding,
     #[error("prefix progress requires an ordered domain")]
     UnorderedPrefix,
     #[error("cardinality requires a closed finite domain")]
@@ -365,6 +456,106 @@ mod tests {
             closed,
         )
         .unwrap()
+    }
+
+    #[test]
+    fn reference_bindings_bound_aggregate_identity_bytes() {
+        let units: Vec<_> = (0..1025)
+            .map(|index| identity(&format!("unit-{index}")))
+            .collect();
+        let domain = Domain::new(
+            identity("domain"),
+            "revision",
+            name("media:page"),
+            Ordering::Ordered,
+            units.clone(),
+            true,
+        )
+        .unwrap();
+        let references = units
+            .into_iter()
+            .enumerate()
+            .map(|(index, unit)| UnitReference {
+                unit,
+                reference: format!("{index:04}{}", "x".repeat(4092)),
+            })
+            .collect();
+        assert_eq!(
+            DomainReferences::new(identity("subject"), domain, references),
+            Err(ModelError::InvalidReferenceBinding)
+        );
+    }
+
+    #[test]
+    fn reference_bindings_require_exact_unique_units_and_bounded_references() {
+        let domain = domain("media:page", Ordering::Ordered, true);
+        let first = UnitReference {
+            unit: identity("first"),
+            reference: "book://first".to_owned(),
+        };
+        let second = UnitReference {
+            unit: identity("second"),
+            reference: "book://second".to_owned(),
+        };
+        let valid = DomainReferences::new(
+            identity("subject"),
+            domain.clone(),
+            vec![second.clone(), first.clone()],
+        )
+        .unwrap();
+        assert_eq!(valid.units()[0], first);
+        for units in [
+            vec![first.clone()],
+            vec![first.clone(), first.clone()],
+            vec![
+                first.clone(),
+                UnitReference {
+                    unit: identity("foreign"),
+                    ..second.clone()
+                },
+            ],
+            vec![
+                first.clone(),
+                UnitReference {
+                    reference: first.reference.clone(),
+                    ..second.clone()
+                },
+            ],
+            vec![
+                first.clone(),
+                UnitReference {
+                    reference: String::new(),
+                    ..second.clone()
+                },
+            ],
+            vec![
+                first.clone(),
+                UnitReference {
+                    reference: "x".repeat(4097),
+                    ..second.clone()
+                },
+            ],
+            vec![
+                first.clone(),
+                UnitReference {
+                    reference: "book://second\n".to_owned(),
+                    ..second
+                },
+            ],
+        ] {
+            assert_eq!(
+                DomainReferences::new(identity("subject"), domain.clone(), units),
+                Err(ModelError::InvalidReferenceBinding)
+            );
+        }
+        let mut json = serde_json::to_value(&valid).unwrap();
+        json["units"][1]["reference"] = serde_json::json!("book://first");
+        assert!(serde_json::from_value::<DomainReferences>(json).is_err());
+        assert_eq!(
+            serde_json::from_value::<DomainReferences>(serde_json::to_value(&valid).unwrap())
+                .unwrap(),
+            valid
+        );
     }
 
     #[test]
