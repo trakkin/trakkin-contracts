@@ -91,6 +91,15 @@ message CompletionEffectGroup {
   string group = 3;
 }
 
+message CompletionResourceAccess {
+  CompletionEffectScope scope = 1;
+  string group = 2;
+  CompletionEffectGroup canonical_group = 3;
+  string revision = 4;
+  bool readable = 5;
+  bool writable = 6;
+}
+
 message CompletionBeforeValue {
   oneof value {
     bytes known_json = 1;
@@ -255,6 +264,7 @@ message ReadCompletionRequest {
 message CompletionReadResult {
   repeated CompletionSubject subjects = 1;
   repeated CompletionObservation observations = 2;
+  repeated CompletionResourceAccess access = 3;
 }
 
 message ReadCompletionResponse {

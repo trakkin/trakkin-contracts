@@ -25,6 +25,33 @@ pub struct EffectGroup {
 }
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct ResourceAccess {
+    pub scope: EffectScope,
+    pub group: Name,
+    pub canonical_group: EffectGroup,
+    pub revision: String,
+    pub readable: bool,
+    pub writable: bool,
+}
+
+impl ResourceAccess {
+    pub fn validate(&self, behavior: &Behavior) -> Result<(), OperationError> {
+        behavior.validate()?;
+        if !valid_revision(&self.revision)
+            || self.writable
+                && !behavior
+                    .operations
+                    .iter()
+                    .any(|operation| operation.effect_fields.contains(&self.scope.field))
+        {
+            return Err(OperationError::InvalidAccess);
+        }
+        Ok(())
+    }
+}
+
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "kind", content = "value", rename_all = "snake_case")]
 pub enum BeforeValue {
     Known(serde_json::Value),
@@ -391,6 +418,8 @@ pub enum OperationError {
     InvalidModel(#[from] ModelError),
     #[error("invalid or duplicate operation capability")]
     InvalidBehavior,
+    #[error("resource access has an invalid revision or unsupported writable field")]
+    InvalidAccess,
     #[error("preparation uses a different behavior revision")]
     ChangedBehavior,
     #[error("unsupported operation class")]

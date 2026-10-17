@@ -316,6 +316,35 @@ impl From<operation::EffectGroup> for wire::CompletionEffectGroup {
     }
 }
 
+pub fn decode_access(
+    value: wire::CompletionResourceAccess,
+    behavior: &operation::Behavior,
+) -> Result<operation::ResourceAccess, WireError> {
+    let decoded = operation::ResourceAccess {
+        scope: required(value.scope, "access.scope")?.try_into()?,
+        group: model::Name::new(value.group)?,
+        canonical_group: required(value.canonical_group, "access.canonical_group")?.try_into()?,
+        revision: value.revision,
+        readable: value.readable,
+        writable: value.writable,
+    };
+    decoded.validate(behavior)?;
+    Ok(decoded)
+}
+
+impl From<operation::ResourceAccess> for wire::CompletionResourceAccess {
+    fn from(value: operation::ResourceAccess) -> Self {
+        Self {
+            scope: Some(value.scope.into()),
+            group: value.group.as_str().to_owned(),
+            canonical_group: Some(value.canonical_group.into()),
+            revision: value.revision,
+            readable: value.readable,
+            writable: value.writable,
+        }
+    }
+}
+
 fn decode_protection_kind(value: i32) -> Result<operation::ProtectionKind, WireError> {
     Ok(match wire::CompletionProtectionKind::try_from(value) {
         Ok(wire::CompletionProtectionKind::Conditional) => operation::ProtectionKind::Conditional,
@@ -853,6 +882,93 @@ mod tests {
             },
         };
         (behavior, prepared)
+    }
+
+    #[test]
+    fn resource_access_roundtrips_explicit_aliases_and_read_only_scopes() {
+        let (behavior, prepared) = prepared();
+        let effect = &prepared.effects[0];
+        let access = operation::ResourceAccess {
+            scope: effect.scope.clone(),
+            group: effect.group.clone(),
+            canonical_group: operation::EffectGroup {
+                account: identity("canonical-account"),
+                subject: identity("canonical-subject"),
+                group: model::Name::new("canonical:completion").unwrap(),
+            },
+            revision: "access-1".to_owned(),
+            readable: true,
+            writable: true,
+        };
+        let encoded: wire::CompletionResourceAccess = access.clone().into();
+        let bytes = encoded.encode_to_vec();
+        assert_eq!(
+            decode_access(
+                wire::CompletionResourceAccess::decode(bytes.as_slice()).unwrap(),
+                &behavior
+            )
+            .unwrap(),
+            access
+        );
+        assert_ne!(access.scope.account, access.canonical_group.account);
+        let mut read_only = access;
+        read_only.scope.field = model::Name::new("state:read-only").unwrap();
+        read_only.writable = false;
+        assert!(decode_access(read_only.clone().into(), &behavior).is_ok());
+        read_only.writable = true;
+        assert_eq!(
+            decode_access(read_only.into(), &behavior),
+            Err(WireError::InvalidOperation(
+                operation::OperationError::InvalidAccess
+            ))
+        );
+    }
+
+    #[test]
+    fn resource_access_rejects_missing_identities_and_invalid_revisions() {
+        let (behavior, prepared) = prepared();
+        let effect = &prepared.effects[0];
+        let valid: wire::CompletionResourceAccess = operation::ResourceAccess {
+            scope: effect.scope.clone(),
+            group: effect.group.clone(),
+            canonical_group: effect.group(),
+            revision: "1".to_owned(),
+            readable: true,
+            writable: true,
+        }
+        .into();
+        for revision in [String::new(), "x".repeat(4097)] {
+            assert!(
+                decode_access(
+                    wire::CompletionResourceAccess {
+                        revision,
+                        ..valid.clone()
+                    },
+                    &behavior
+                )
+                .is_err()
+            );
+        }
+        assert!(
+            decode_access(
+                wire::CompletionResourceAccess {
+                    scope: None,
+                    ..valid.clone()
+                },
+                &behavior
+            )
+            .is_err()
+        );
+        assert!(
+            decode_access(
+                wire::CompletionResourceAccess {
+                    canonical_group: None,
+                    ..valid
+                },
+                &behavior
+            )
+            .is_err()
+        );
     }
 
     #[test]
