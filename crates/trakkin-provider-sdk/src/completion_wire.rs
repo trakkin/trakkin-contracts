@@ -228,6 +228,7 @@ impl TryFrom<wire::CompletionObservation> for model::Observation {
             origin: required(value.origin, "observation.origin")?.try_into()?,
             account: required(value.account, "observation.account")?.try_into()?,
             subject: required(value.subject, "observation.subject")?.try_into()?,
+            field: model::Name::new(value.field)?,
             behavior_revision: value.behavior_revision,
             remote_revision: value.remote_revision,
             acquired_at_milliseconds: value.acquired_at_milliseconds,
@@ -253,6 +254,7 @@ impl From<model::Observation> for wire::CompletionObservation {
             origin: Some(value.origin.into()),
             account: Some(value.account.into()),
             subject: Some(value.subject.into()),
+            field: value.field.as_str().to_owned(),
             behavior_revision: value.behavior_revision,
             remote_revision: value.remote_revision,
             acquired_at_milliseconds: value.acquired_at_milliseconds,
@@ -818,6 +820,7 @@ mod tests {
             origin: identity("origin"),
             account: identity("account"),
             subject: identity("recording"),
+            field: model::Name::new("state:completion").unwrap(),
             behavior_revision: "1".to_owned(),
             remote_revision: Some("remote-1".to_owned()),
             acquired_at_milliseconds: 100,
@@ -836,6 +839,28 @@ mod tests {
             }),
             native_value: serde_json::json!({"plays": 3}),
         }
+    }
+
+    #[test]
+    fn completion_observations_require_explicit_native_field_identity() {
+        let mut chapters = observation();
+        chapters.field = model::Name::new("state:chapters").unwrap();
+        let mut volumes = chapters.clone();
+        volumes.field = model::Name::new("state:volumes").unwrap();
+        for value in [chapters.clone(), volumes.clone()] {
+            assert_eq!(
+                model::Observation::try_from(wire::CompletionObservation::from(value.clone()))
+                    .unwrap(),
+                value
+            );
+        }
+        assert_ne!(chapters, volumes);
+        let mut missing = wire::CompletionObservation::from(chapters.clone());
+        missing.field.clear();
+        assert!(model::Observation::try_from(missing).is_err());
+        let mut serialized = serde_json::to_value(chapters).unwrap();
+        serialized.as_object_mut().unwrap().remove("field");
+        assert!(serde_json::from_value::<model::Observation>(serialized).is_err());
     }
 
     fn prepared() -> (operation::Behavior, operation::PreparedOperation) {
