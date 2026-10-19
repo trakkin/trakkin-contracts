@@ -438,6 +438,59 @@ mod tests {
     }
 
     #[test]
+    fn valid_batches_cannot_bypass_the_aggregate_field_evidence_budget() {
+        let (_, behavior) = fixture();
+        let batch = |subject: &str| {
+            let (mut state, _) = fixture();
+            let subject = identity(subject);
+            state.subjects[0].identity = subject.clone();
+            state.observations[0].subject = subject.clone();
+            state.references.clear();
+            let access = state.access.remove(0);
+            let observation = state.field_observations.remove(0);
+            for index in 0..36 {
+                let scope = EffectScope {
+                    subject: subject.clone(),
+                    field: name(&format!("state:field-{index}")),
+                    ..access.scope.clone()
+                };
+                state.access.push(ResourceAccess {
+                    scope: scope.clone(),
+                    canonical_group: EffectGroup {
+                        subject: subject.clone(),
+                        ..access.canonical_group.clone()
+                    },
+                    ..access.clone()
+                });
+                state.field_observations.push(FieldObservation {
+                    scope,
+                    value: BeforeValue::Known(serde_json::Value::String("x".repeat(60_000))),
+                    ..observation.clone()
+                });
+            }
+            state
+        };
+        let mut combined = batch("first-edition");
+        let second = batch("second-edition");
+        for state in [&combined, &second] {
+            state
+                .validate(&identity("account"), &[], &behavior)
+                .unwrap();
+        }
+        combined.subjects.extend(second.subjects);
+        combined.observations.extend(second.observations);
+        combined.access.extend(second.access);
+        combined
+            .field_observations
+            .extend(second.field_observations);
+        bounded_json_size(&combined, 8 * 1024 * 1024).unwrap();
+        assert_eq!(
+            combined.validate(&identity("account"), &[], &behavior),
+            Err("native field observations exceed limits")
+        );
+    }
+
+    #[test]
     fn bounded_json_counts_serialized_bytes_without_materializing_a_buffer() {
         let value = serde_json::json!({"escaped": "line\n\"quoted\"", "items": [null, true, 17]});
         let size = serde_json::to_vec(&value).unwrap().len();
