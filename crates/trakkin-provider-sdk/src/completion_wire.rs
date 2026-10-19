@@ -42,6 +42,32 @@ impl From<discovery::DiscoveryError> for WireError {
     }
 }
 
+impl TryFrom<wire::CompletionIntention> for operation::Intention {
+    type Error = WireError;
+
+    fn try_from(value: wire::CompletionIntention) -> Result<Self, Self::Error> {
+        let intention = Self {
+            scope: required(value.scope, "intention.scope")?.try_into()?,
+            domain: required(value.domain, "intention.domain")?.try_into()?,
+            baseline: required(value.baseline, "intention.baseline")?.try_into()?,
+            desired: required(value.desired, "intention.desired")?.try_into()?,
+        };
+        intention.validate()?;
+        Ok(intention)
+    }
+}
+
+impl From<operation::Intention> for wire::CompletionIntention {
+    fn from(value: operation::Intention) -> Self {
+        Self {
+            scope: Some(value.scope.into()),
+            domain: Some(value.domain.into()),
+            baseline: Some(value.baseline.into()),
+            desired: Some(value.desired.into()),
+        }
+    }
+}
+
 impl TryFrom<wire::CompletionSubjectField> for discovery::Field {
     type Error = WireError;
 

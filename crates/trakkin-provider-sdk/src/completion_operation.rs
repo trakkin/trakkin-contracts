@@ -19,6 +19,26 @@ pub struct EffectScope {
     pub field: Name,
 }
 
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct Intention {
+    pub scope: EffectScope,
+    pub domain: Domain,
+    pub baseline: Progress,
+    pub desired: Progress,
+}
+
+impl Intention {
+    pub fn validate(&self) -> Result<(), OperationError> {
+        self.baseline.validate(&self.domain)?;
+        self.desired.validate(&self.domain)?;
+        if std::mem::discriminant(&self.baseline) != std::mem::discriminant(&self.desired) {
+            return Err(OperationError::ChangedRepresentation);
+        }
+        Ok(())
+    }
+}
+
 #[derive(Clone, Debug, Eq, PartialEq, Ord, PartialOrd, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct EffectGroup {
@@ -265,6 +285,35 @@ pub struct PreparedOperation {
 }
 
 impl PreparedOperation {
+    pub fn validate_for<'a>(
+        &self,
+        behavior: &Behavior,
+        identity: &Identity,
+        account: &Identity,
+        scopes: impl IntoIterator<Item = &'a EffectScope>,
+    ) -> Result<(), OperationError> {
+        self.validate(behavior)?;
+        if &self.identity != identity
+            || self
+                .effects
+                .iter()
+                .any(|effect| &effect.scope.account != account)
+        {
+            return Err(OperationError::InvalidPreparation);
+        }
+        let effects: BTreeSet<_> = self.effects.iter().map(|effect| &effect.scope).collect();
+        let mut requested = BTreeSet::new();
+        for scope in scopes {
+            if &scope.account != account || !requested.insert(scope) || !effects.contains(scope) {
+                return Err(OperationError::InvalidPreparation);
+            }
+        }
+        if requested.is_empty() {
+            return Err(OperationError::InvalidPreparation);
+        }
+        Ok(())
+    }
+
     pub fn validate(&self, behavior: &Behavior) -> Result<(), OperationError> {
         behavior.validate()?;
         if self.behavior_revision != behavior.revision {
@@ -635,6 +684,100 @@ mod tests {
             },
         };
         (behavior, operation)
+    }
+
+    #[test]
+    fn preparation_intentions_preserve_valid_progress_and_reject_invalid_requests() {
+        let (_, operation) = fixture();
+        let effect = operation.effects.into_iter().next().unwrap();
+        let Change::SetCompletion {
+            domain,
+            before,
+            after,
+        } = effect.change
+        else {
+            panic!("fixture has a completion setter");
+        };
+        let mut intention = Intention {
+            scope: effect.scope,
+            domain,
+            baseline: before,
+            desired: after,
+        };
+        intention.validate().unwrap();
+        let wire = crate::v1::CompletionIntention::from(intention.clone());
+        assert_eq!(Intention::try_from(wire.clone()).unwrap(), intention);
+        let mut missing = wire;
+        missing.baseline = None;
+        assert!(Intention::try_from(missing).is_err());
+        for desired in [
+            Progress::Prefix { completed: 3 },
+            Progress::Items {
+                completed: BTreeSet::new(),
+            },
+        ] {
+            intention.desired = desired;
+            assert!(intention.validate().is_err());
+            assert!(
+                Intention::try_from(crate::v1::CompletionIntention::from(intention.clone()))
+                    .is_err()
+            );
+        }
+    }
+
+    #[test]
+    fn preparation_correlates_the_request_without_hiding_incidental_effects() {
+        let (behavior, mut operation) = fixture();
+        let scope = operation.effects[0].scope.clone();
+        let expected = operation.identity.clone();
+        operation.effects.push(Effect {
+            scope: EffectScope {
+                field: name("state:history"),
+                ..scope.clone()
+            },
+            group: name("group:entry"),
+            change: Change::Append {
+                value: serde_json::json!({"event": "completed"}),
+            },
+        });
+        operation
+            .validate_for(&behavior, &expected, &scope.account, [&scope])
+            .unwrap();
+        assert!(
+            operation
+                .validate_for(&behavior, &identity("other"), &scope.account, [&scope])
+                .is_err()
+        );
+        assert!(
+            operation
+                .validate_for(&behavior, &expected, &identity("other"), [&scope])
+                .is_err()
+        );
+        let missing = EffectScope {
+            subject: identity("other"),
+            ..scope.clone()
+        };
+        assert!(
+            operation
+                .validate_for(&behavior, &expected, &scope.account, [&scope, &missing])
+                .is_err()
+        );
+        assert!(
+            operation
+                .validate_for(&behavior, &expected, &scope.account, [&scope, &scope])
+                .is_err()
+        );
+        assert!(
+            operation
+                .validate_for(&behavior, &expected, &scope.account, [])
+                .is_err()
+        );
+        operation.effects[1].scope.account = identity("other");
+        assert!(
+            operation
+                .validate_for(&behavior, &expected, &scope.account, [&scope])
+                .is_err()
+        );
     }
 
     #[test]

@@ -53,6 +53,18 @@ completion evidence without allocating a second buffer. Valid state is evidence,
 not write authorization; freshness, mappings, policy permissions, consent, and
 outstanding-request barriers remain host responsibilities.
 
+## Completion preparation
+
+`completion_operation::Intention` owns the requested native scope, domain,
+baseline, and desired progress. Its protobuf conversion validates domain membership
+and representation consistently for providers and hosts. Native source membership
+and current baseline checks remain provider responsibilities.
+
+`PreparedOperation::validate_for` validates the operation against its behavior and
+correlates its identity, account, and intended scopes with the request. Additional
+disclosed effects remain visible for host authorization; request correlation alone
+does not authorize them or prove the requested progress will be applied.
+
 ## Provider capability scope
 
 The contract retains additive item merges, disclosed append effects, monotone
