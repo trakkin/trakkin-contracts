@@ -281,13 +281,8 @@ impl PreparedOperation {
         {
             return Err(OperationError::InvalidPreparation);
         }
-        if serde_json::to_vec(&self.command)
-            .map_err(|_| OperationError::InvalidPreparation)?
-            .len()
-            > MAXIMUM_COMMAND_BYTES
-        {
-            return Err(OperationError::InvalidPreparation);
-        }
+        bounded_json_size(&self.command, MAXIMUM_COMMAND_BYTES)
+            .map_err(|_| OperationError::InvalidPreparation)?;
         let mut scopes = BTreeSet::new();
         for effect in &self.effects {
             effect.validate()?;
@@ -649,6 +644,23 @@ mod tests {
         let encoded = serde_json::to_vec(&operation).unwrap();
         let decoded: PreparedOperation = serde_json::from_slice(&encoded).unwrap();
         assert_eq!(decoded, operation);
+    }
+
+    #[test]
+    fn prepared_command_limit_counts_the_complete_serialized_envelope() {
+        let (behavior, mut operation) = fixture();
+        operation.command.parameters = serde_json::Value::String(String::new());
+        let envelope = bounded_json_size(&operation.command, MAXIMUM_COMMAND_BYTES).unwrap();
+        let available = MAXIMUM_COMMAND_BYTES - envelope;
+        for (parameters, valid) in [
+            ("x".repeat(available), true),
+            ("x".repeat(available + 1), false),
+            ("\"".repeat(available / 2), true),
+            ("\"".repeat(available / 2 + 1), false),
+        ] {
+            operation.command.parameters = serde_json::Value::String(parameters);
+            assert_eq!(operation.validate(&behavior).is_ok(), valid);
+        }
     }
 
     #[test]
