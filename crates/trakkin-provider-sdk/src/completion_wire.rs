@@ -21,6 +21,141 @@ pub enum WireError {
     LimitExceeded,
     #[error("completion wire native value is not valid JSON")]
     InvalidJson,
+    #[error("completion discovery metadata is inconsistent with its request or capabilities")]
+    InvalidDiscovery,
+}
+
+pub const MAXIMUM_DISCOVERY_PAGE_SIZE: u32 = 100;
+
+pub fn validate_discovery_request(
+    request: &wire::DiscoverCompletionSubjectsRequest,
+) -> Result<&wire::CompletionContext, WireError> {
+    let context = request
+        .context
+        .as_ref()
+        .ok_or(WireError::Missing("discovery.context"))?;
+    if context.operation_id.is_empty()
+        || context.operation_id.len() > 256
+        || !(1..=MAXIMUM_DISCOVERY_PAGE_SIZE).contains(&request.page_size)
+        || request
+            .cursor
+            .as_ref()
+            .is_some_and(|cursor| cursor.is_empty() || cursor.len() > 4096)
+    {
+        return Err(WireError::InvalidDiscovery);
+    }
+    crate::validation::key(
+        context
+            .source_key
+            .as_ref()
+            .ok_or(WireError::Missing("discovery.source_key"))?,
+        "discovery.source_key",
+    )
+    .map_err(|_| WireError::InvalidDiscovery)?;
+    Ok(context)
+}
+
+pub fn validate_completion_library(
+    library: &wire::CompletionLibrary,
+    account: &model::Identity,
+) -> Result<operation::Behavior, WireError> {
+    if prost::Message::encoded_len(library) > 256 * 1024 || library.fields.len() > 32 {
+        return Err(WireError::LimitExceeded);
+    }
+    if model::Identity::try_from(required(library.account.clone(), "library.account")?)? != *account
+    {
+        return Err(WireError::InvalidDiscovery);
+    }
+    let behavior =
+        operation::Behavior::try_from(required(library.behavior.clone(), "library.behavior")?)?;
+    validate_discovery_fields(&library.fields, &behavior)?;
+    Ok(behavior)
+}
+
+fn validate_discovery_fields(
+    fields: &[wire::CompletionSubjectField],
+    behavior: &operation::Behavior,
+) -> Result<(), WireError> {
+    if fields.len() > 32 {
+        return Err(WireError::LimitExceeded);
+    }
+    let mut seen = BTreeSet::new();
+    for field in fields {
+        let field_name = model::Name::new(&field.field)?;
+        model::Name::new(&field.group)?;
+        let units = decode_names(field.unit_kinds.clone(), "discovery.unit_kinds")?;
+        if !seen.insert(field_name.clone())
+            || units.is_empty()
+            || !units.is_subset(&behavior.units)
+            || !(field.readable || field.writable)
+            || (field.writable
+                && !behavior
+                    .operations
+                    .iter()
+                    .any(|operation| operation.effect_fields.contains(&field_name)))
+        {
+            return Err(WireError::InvalidDiscovery);
+        }
+    }
+    Ok(())
+}
+
+pub fn validate_completion_subject_page(
+    page: &wire::CompletionSubjectPage,
+    request: &wire::DiscoverCompletionSubjectsRequest,
+    account: &model::Identity,
+) -> Result<(), WireError> {
+    validate_discovery_request(request)?;
+    if prost::Message::encoded_len(page) > 1024 * 1024
+        || page.subjects.len() > request.page_size as usize
+    {
+        return Err(WireError::LimitExceeded);
+    }
+    if let Some(cursor) = &page.next_cursor
+        && (cursor.is_empty()
+            || cursor.len() > 4096
+            || request.cursor.as_ref() == Some(cursor)
+            || page.subjects.is_empty())
+    {
+        return Err(WireError::InvalidDiscovery);
+    }
+    let library = page
+        .library
+        .as_ref()
+        .ok_or(WireError::Missing("page.library"))?;
+    let behavior = validate_completion_library(library, account)?;
+    let mut seen = BTreeSet::new();
+    for descriptor in &page.subjects {
+        let subject =
+            model::Subject::try_from(required(descriptor.subject.clone(), "descriptor.subject")?)?;
+        if !seen.insert(subject.identity)
+            || subject.label.len() > 4096
+            || subject.label.chars().any(char::is_control)
+            || !behavior.subject_roles.contains(&subject.role)
+            || descriptor.fields.is_empty()
+        {
+            return Err(WireError::InvalidDiscovery);
+        }
+        validate_discovery_fields(&descriptor.fields, &behavior)?;
+        for field in &descriptor.fields {
+            let declared = library
+                .fields
+                .iter()
+                .find(|declared| declared.field == field.field)
+                .ok_or(WireError::InvalidDiscovery)?;
+            if field.group != declared.group
+                || field.readable && !declared.readable
+                || field.writable && !declared.writable
+                || field
+                    .unit_kinds
+                    .iter()
+                    .any(|unit| !declared.unit_kinds.contains(unit))
+            {
+                return Err(WireError::InvalidDiscovery);
+            }
+        }
+    }
+    Ok(())
 }
 
 fn required<T>(value: Option<T>, field: &'static str) -> Result<T, WireError> {
@@ -1145,6 +1280,82 @@ mod tests {
                 operation::OperationError::InvalidAccess
             ))
         );
+    }
+
+    #[test]
+    fn discovery_is_bounded_account_bound_and_uses_identities_not_labels() {
+        let (behavior, prepared) = prepared();
+        let effect = &prepared.effects[0];
+        let account = effect.scope.account.clone();
+        let field = wire::CompletionSubjectField {
+            field: effect.scope.field.as_str().to_owned(),
+            group: effect.group.as_str().to_owned(),
+            unit_kinds: behavior
+                .units
+                .iter()
+                .map(|unit| unit.as_str().to_owned())
+                .collect(),
+            readable: true,
+            writable: true,
+        };
+        let descriptor = wire::CompletionSubjectDescriptor {
+            subject: Some(wire::CompletionSubject {
+                identity: Some(identity("first").into()),
+                classifications: vec![],
+                role: "subject:recording".to_owned(),
+                label: "The same display title".to_owned(),
+            }),
+            fields: vec![field.clone()],
+        };
+        let mut second = descriptor.clone();
+        second.subject.as_mut().unwrap().identity = Some(identity("second").into());
+        let page = wire::CompletionSubjectPage {
+            library: Some(wire::CompletionLibrary {
+                account: Some(account.clone().into()),
+                behavior: Some(behavior.into()),
+                fields: vec![field],
+            }),
+            subjects: vec![descriptor.clone(), second],
+            next_cursor: Some("next-page".to_owned()),
+        };
+        let request = wire::DiscoverCompletionSubjectsRequest {
+            context: Some(wire::CompletionContext {
+                operation_id: b"operation".to_vec(),
+                source_key: Some(wire::Key {
+                    namespace: "fixture".to_owned(),
+                    value: b"library".to_vec(),
+                }),
+            }),
+            page_size: 2,
+            cursor: None,
+        };
+        assert!(validate_completion_subject_page(&page, &request, &account).is_ok());
+        assert!(
+            validate_completion_subject_page(&page, &request, &identity("foreign-account"))
+                .is_err()
+        );
+        let mut invalid = page.clone();
+        invalid.subjects[1] = descriptor;
+        assert!(validate_completion_subject_page(&invalid, &request, &account).is_err());
+        invalid = page.clone();
+        invalid.subjects[0].fields[0].group = "group:undeclared".to_owned();
+        assert!(validate_completion_subject_page(&invalid, &request, &account).is_err());
+        invalid = page.clone();
+        invalid.subjects[0].fields[0].unit_kinds = vec!["unit:undeclared".to_owned()];
+        assert!(validate_completion_subject_page(&invalid, &request, &account).is_err());
+        invalid = page.clone();
+        invalid.subjects.clear();
+        assert!(validate_completion_subject_page(&invalid, &request, &account).is_err());
+        let mut invalid_request = request.clone();
+        invalid_request.cursor = page.next_cursor.clone();
+        assert!(validate_completion_subject_page(&page, &invalid_request, &account).is_err());
+        invalid_request = request.clone();
+        invalid_request.page_size = 1;
+        assert!(validate_completion_subject_page(&page, &invalid_request, &account).is_err());
+        for page_size in [0, MAXIMUM_DISCOVERY_PAGE_SIZE + 1] {
+            invalid_request.page_size = page_size;
+            assert!(validate_discovery_request(&invalid_request).is_err());
+        }
     }
 
     #[test]

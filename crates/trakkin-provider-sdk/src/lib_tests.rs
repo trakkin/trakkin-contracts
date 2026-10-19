@@ -104,6 +104,8 @@ fn descriptor_contains_provider_contracts() {
             .filter_map(|method| method.name.as_deref())
             .collect::<Vec<_>>(),
         [
+            "DescribeCompletionLibrary",
+            "DiscoverCompletionSubjects",
             "DescribeCompletion",
             "ReadCompletion",
             "ResolveCompletionDestinations",

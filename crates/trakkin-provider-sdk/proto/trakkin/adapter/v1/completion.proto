@@ -6,6 +6,8 @@ import "google/protobuf/empty.proto";
 import "trakkin/adapter/v1/adapter.proto";
 
 service CompletionService {
+  rpc DescribeCompletionLibrary(DescribeCompletionLibraryRequest) returns (DescribeCompletionLibraryResponse);
+  rpc DiscoverCompletionSubjects(DiscoverCompletionSubjectsRequest) returns (DiscoverCompletionSubjectsResponse);
   rpc DescribeCompletion(DescribeCompletionRequest) returns (DescribeCompletionResponse);
   rpc ReadCompletion(ReadCompletionRequest) returns (ReadCompletionResponse);
   rpc ResolveCompletionDestinations(ResolveCompletionDestinationsRequest) returns (ResolveCompletionDestinationsResponse);
@@ -24,6 +26,55 @@ message CompletionSubject {
   repeated string classifications = 2;
   string role = 3;
   string label = 4;
+}
+
+message DiscoverCompletionSubjectsRequest {
+  CompletionContext context = 1;
+  uint32 page_size = 2;
+  optional string cursor = 3;
+}
+
+message CompletionSubjectField {
+  string field = 1;
+  string group = 2;
+  repeated string unit_kinds = 3;
+  bool readable = 4;
+  bool writable = 5;
+}
+
+message DescribeCompletionLibraryRequest {
+  CompletionContext context = 1;
+}
+
+message DescribeCompletionLibraryResponse {
+  oneof result {
+    CompletionLibrary library = 1;
+    OperationFailure failure = 2;
+  }
+}
+
+message CompletionLibrary {
+  CompletionIdentity account = 1;
+  CompletionBehavior behavior = 2;
+  repeated CompletionSubjectField fields = 3;
+}
+
+message CompletionSubjectDescriptor {
+  CompletionSubject subject = 1;
+  repeated CompletionSubjectField fields = 2;
+}
+
+message DiscoverCompletionSubjectsResponse {
+  oneof result {
+    CompletionSubjectPage page = 1;
+    OperationFailure failure = 2;
+  }
+}
+
+message CompletionSubjectPage {
+  CompletionLibrary library = 1;
+  repeated CompletionSubjectDescriptor subjects = 2;
+  optional string next_cursor = 3;
 }
 
 enum CompletionOrdering {
