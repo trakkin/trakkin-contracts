@@ -1,6 +1,8 @@
 mod bootstrap;
 pub mod completion;
+pub mod completion_discovery;
 pub mod completion_operation;
+pub mod completion_state;
 pub mod completion_wire;
 pub mod mapping;
 pub mod validation;

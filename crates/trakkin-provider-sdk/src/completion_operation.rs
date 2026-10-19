@@ -1,4 +1,4 @@
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 use std::fmt;
 
 use serde::{Deserialize, Serialize};
@@ -144,14 +144,8 @@ impl Effect {
                 before,
                 additions,
             } => {
-                Progress::Items {
-                    completed: before.clone(),
-                }
-                .validate(domain)?;
-                Progress::Items {
-                    completed: additions.clone(),
-                }
-                .validate(domain)?;
+                domain.validate_units(before)?;
+                domain.validate_units(additions)?;
             }
             Change::SetValue { .. } | Change::Append { .. } => {}
         }
@@ -440,6 +434,49 @@ impl AttemptOutcome {
     }
 }
 
+pub fn validate_attempt_outcome(
+    operation: &PreparedOperation,
+    attempt: &Identity,
+    previous: Option<&AttemptOutcome>,
+    current: &AttemptOutcome,
+) -> Result<(), OperationError> {
+    current.validate_for(operation, attempt)?;
+    if current.lifecycle == RequestLifecycle::NotDispatched {
+        return Err(OperationError::InvalidOutcome);
+    }
+    if let Some(previous) = previous {
+        previous.validate_for(operation, attempt)?;
+        if previous.lifecycle == RequestLifecycle::NotDispatched
+            || (matches!(previous.lifecycle, RequestLifecycle::Terminal { .. })
+                && !matches!(current.lifecycle, RequestLifecycle::Terminal { .. }))
+        {
+            return Err(OperationError::InvalidOutcome);
+        }
+        let current_effects: BTreeMap<_, _> = current
+            .effects
+            .iter()
+            .map(|effect| (&effect.scope, effect.knowledge))
+            .collect();
+        for effect in &previous.effects {
+            let knowledge = current_effects[&effect.scope];
+            if (effect.knowledge == EffectKnowledge::Applied
+                && knowledge != EffectKnowledge::Applied)
+                || (effect.knowledge == EffectKnowledge::PartiallyApplied
+                    && matches!(
+                        knowledge,
+                        EffectKnowledge::Unknown | EffectKnowledge::NotApplied
+                    ))
+                || (effect.knowledge == EffectKnowledge::NotApplied
+                    && matches!(previous.lifecycle, RequestLifecycle::Terminal { .. })
+                    && knowledge != EffectKnowledge::NotApplied)
+            {
+                return Err(OperationError::InvalidOutcome);
+            }
+        }
+    }
+    Ok(())
+}
+
 #[derive(Clone, Copy, Debug, Eq, PartialEq, thiserror::Error)]
 pub enum OperationError {
     #[error("native field observation contains invalid metadata or an oversized value")]
@@ -638,9 +675,36 @@ mod tests {
     }
 
     #[test]
-    fn a_setter_or_incidental_append_cannot_claim_monotone_protection() {
+    fn monotone_protection_accepts_merges_but_not_setters_or_incidental_appends() {
         let (behavior, mut operation) = fixture();
+        let setter = operation.effects[0].change.clone();
+        let Change::SetCompletion { domain, .. } = &setter else {
+            panic!("fixture must contain a completion setter");
+        };
+        operation.effects[0].change = Change::MergeItems {
+            domain: domain.clone(),
+            before: BTreeSet::new(),
+            additions: BTreeSet::from([identity("1")]),
+        };
         operation.protection = Protection::MonotoneMerge;
+        operation.validate(&behavior).unwrap();
+        operation.effects.push(Effect {
+            scope: EffectScope {
+                account: identity("account"),
+                subject: identity("history"),
+                field: name("state:history"),
+            },
+            group: name("group:history"),
+            change: Change::Append {
+                value: serde_json::json!({"event": "completed"}),
+            },
+        });
+        assert_eq!(
+            operation.validate(&behavior),
+            Err(OperationError::UnsafeMerge)
+        );
+        operation.effects.pop();
+        operation.effects[0].change = setter;
         assert_eq!(
             operation.validate(&behavior),
             Err(OperationError::UnsafeMerge)
@@ -692,6 +756,135 @@ mod tests {
             operation.validate(&behavior),
             Err(OperationError::InvalidReplay)
         );
+    }
+
+    #[test]
+    fn native_reports_cannot_claim_the_host_only_not_dispatched_state() {
+        let (_, operation) = fixture();
+        let attempt = identity("attempt");
+        let initial = AttemptOutcome {
+            operation: operation.identity.clone(),
+            attempt: attempt.clone(),
+            lifecycle: RequestLifecycle::NotDispatched,
+            effects: vec![EffectOutcome {
+                scope: operation.effects[0].scope.clone(),
+                knowledge: EffectKnowledge::NotApplied,
+            }],
+            satisfaction: Satisfaction::Unknown,
+        };
+        initial.validate_for(&operation, &attempt).unwrap();
+        assert_eq!(
+            validate_attempt_outcome(&operation, &attempt, None, &initial),
+            Err(OperationError::InvalidOutcome)
+        );
+        let mut current = initial.clone();
+        current.lifecycle = RequestLifecycle::MayStillExecute;
+        assert_eq!(
+            validate_attempt_outcome(&operation, &attempt, Some(&initial), &current),
+            Err(OperationError::InvalidOutcome)
+        );
+    }
+
+    #[test]
+    fn native_report_transitions_preserve_terminal_and_effect_evidence() {
+        let (_, operation) = fixture();
+        let attempt = identity("attempt");
+        let lifecycles = [
+            RequestLifecycle::MayStillExecute,
+            RequestLifecycle::Terminal {
+                evidence_kind: name("evidence:receipt"),
+                evidence: identity("receipt"),
+            },
+        ];
+        let knowledge_states = [
+            EffectKnowledge::Unknown,
+            EffectKnowledge::NotApplied,
+            EffectKnowledge::PartiallyApplied,
+            EffectKnowledge::Applied,
+        ];
+        for previous_lifecycle in &lifecycles {
+            for current_lifecycle in &lifecycles {
+                for previous_knowledge in knowledge_states {
+                    for current_knowledge in knowledge_states {
+                        for satisfaction in [
+                            Satisfaction::Unknown,
+                            Satisfaction::Satisfied,
+                            Satisfaction::Unsatisfied,
+                        ] {
+                            let previous = AttemptOutcome {
+                                operation: operation.identity.clone(),
+                                attempt: attempt.clone(),
+                                lifecycle: previous_lifecycle.clone(),
+                                effects: vec![EffectOutcome {
+                                    scope: operation.effects[0].scope.clone(),
+                                    knowledge: previous_knowledge,
+                                }],
+                                satisfaction: Satisfaction::Satisfied,
+                            };
+                            let current = AttemptOutcome {
+                                lifecycle: current_lifecycle.clone(),
+                                effects: vec![EffectOutcome {
+                                    scope: operation.effects[0].scope.clone(),
+                                    knowledge: current_knowledge,
+                                }],
+                                satisfaction,
+                                ..previous.clone()
+                            };
+                            let terminal =
+                                matches!(previous_lifecycle, RequestLifecycle::Terminal { .. });
+                            let lifecycle_allowed = !terminal
+                                || matches!(current_lifecycle, RequestLifecycle::Terminal { .. });
+                            let knowledge_allowed = match previous_knowledge {
+                                EffectKnowledge::Unknown => true,
+                                EffectKnowledge::NotApplied if !terminal => true,
+                                EffectKnowledge::NotApplied => {
+                                    current_knowledge == EffectKnowledge::NotApplied
+                                }
+                                EffectKnowledge::PartiallyApplied => matches!(
+                                    current_knowledge,
+                                    EffectKnowledge::PartiallyApplied | EffectKnowledge::Applied
+                                ),
+                                EffectKnowledge::Applied => {
+                                    current_knowledge == EffectKnowledge::Applied
+                                }
+                            };
+                            assert_eq!(
+                                validate_attempt_outcome(
+                                    &operation,
+                                    &attempt,
+                                    Some(&previous),
+                                    &current,
+                                )
+                                .is_ok(),
+                                lifecycle_allowed && knowledge_allowed,
+                                "{previous_lifecycle:?}/{previous_knowledge:?} -> \
+                                 {current_lifecycle:?}/{current_knowledge:?}, {satisfaction:?}"
+                            );
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn native_report_rejects_foreign_attempts_and_incomplete_effects() {
+        let (_, operation) = fixture();
+        let attempt = identity("attempt");
+        let mut outcome = AttemptOutcome {
+            operation: operation.identity.clone(),
+            attempt: identity("foreign"),
+            lifecycle: RequestLifecycle::MayStillExecute,
+            effects: vec![EffectOutcome {
+                scope: operation.effects[0].scope.clone(),
+                knowledge: EffectKnowledge::Unknown,
+            }],
+            satisfaction: Satisfaction::Unknown,
+        };
+        assert!(validate_attempt_outcome(&operation, &attempt, None, &outcome).is_err());
+        outcome.attempt = attempt.clone();
+        outcome.effects.clear();
+        assert!(validate_attempt_outcome(&operation, &attempt, None, &outcome).is_err());
     }
 
     #[test]

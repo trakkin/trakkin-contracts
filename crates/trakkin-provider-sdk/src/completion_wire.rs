@@ -1,6 +1,9 @@
 use std::collections::BTreeSet;
 
-use crate::{completion as model, completion_operation as operation, v1 as wire};
+use crate::{
+    completion as model, completion_discovery as discovery, completion_operation as operation,
+    completion_state as state, v1 as wire,
+};
 
 const MAXIMUM_COLLECTION_ITEMS: usize = 100_000;
 const MAXIMUM_JSON_BYTES: usize = 65_536;
@@ -23,9 +26,92 @@ pub enum WireError {
     InvalidJson,
     #[error("completion discovery metadata is inconsistent with its request or capabilities")]
     InvalidDiscovery,
+    #[error("completion state is invalid: {0}")]
+    InvalidState(&'static str),
 }
 
-pub const MAXIMUM_DISCOVERY_PAGE_SIZE: u32 = 100;
+pub use discovery::MAXIMUM_PAGE_SIZE as MAXIMUM_DISCOVERY_PAGE_SIZE;
+
+impl From<discovery::DiscoveryError> for WireError {
+    fn from(error: discovery::DiscoveryError) -> Self {
+        match error {
+            discovery::DiscoveryError::LimitExceeded => Self::LimitExceeded,
+            discovery::DiscoveryError::InvalidMetadata => Self::InvalidDiscovery,
+            discovery::DiscoveryError::InvalidBehavior(error) => Self::InvalidOperation(error),
+        }
+    }
+}
+
+impl TryFrom<wire::CompletionSubjectField> for discovery::Field {
+    type Error = WireError;
+
+    fn try_from(field: wire::CompletionSubjectField) -> Result<Self, Self::Error> {
+        Ok(Self {
+            field: model::Name::new(field.field)?,
+            group: model::Name::new(field.group)?,
+            unit_kinds: decode_names(field.unit_kinds, "discovery.unit_kinds")?,
+            readable: field.readable,
+            writable: field.writable,
+        })
+    }
+}
+
+impl TryFrom<wire::CompletionLibrary> for discovery::Library {
+    type Error = WireError;
+
+    fn try_from(library: wire::CompletionLibrary) -> Result<Self, Self::Error> {
+        if prost::Message::encoded_len(&library) > 256 * 1024
+            || library.fields.len() > discovery::MAXIMUM_FIELDS
+        {
+            return Err(WireError::LimitExceeded);
+        }
+        let decoded = Self {
+            account: required(library.account, "library.account")?.try_into()?,
+            behavior: required(library.behavior, "library.behavior")?.try_into()?,
+            fields: library
+                .fields
+                .into_iter()
+                .map(TryInto::try_into)
+                .collect::<Result<_, _>>()?,
+        };
+        decoded.validate(&decoded.account)?;
+        Ok(decoded)
+    }
+}
+
+impl TryFrom<wire::CompletionSubjectPage> for discovery::Page {
+    type Error = WireError;
+
+    fn try_from(page: wire::CompletionSubjectPage) -> Result<Self, Self::Error> {
+        if prost::Message::encoded_len(&page) > 1024 * 1024
+            || page.subjects.len() > discovery::MAXIMUM_PAGE_SIZE as usize
+            || page
+                .subjects
+                .iter()
+                .any(|subject| subject.fields.len() > discovery::MAXIMUM_FIELDS)
+        {
+            return Err(WireError::LimitExceeded);
+        }
+        Ok(Self {
+            library: required(page.library, "page.library")?.try_into()?,
+            subjects: page
+                .subjects
+                .into_iter()
+                .map(|descriptor| {
+                    Ok(discovery::Descriptor {
+                        subject: required(descriptor.subject, "descriptor.subject")?.try_into()?,
+                        fields: descriptor
+                            .fields
+                            .into_iter()
+                            .map(TryInto::try_into)
+                            .collect::<Result<_, WireError>>()?,
+                    })
+                })
+                .collect::<Result<_, WireError>>()?,
+            next_cursor: page.next_cursor,
+        })
+    }
+}
 
 pub fn validate_discovery_request(
     request: &wire::DiscoverCompletionSubjectsRequest,
@@ -34,16 +120,10 @@ pub fn validate_discovery_request(
         .context
         .as_ref()
         .ok_or(WireError::Missing("discovery.context"))?;
-    if context.operation_id.is_empty()
-        || context.operation_id.len() > 256
-        || !(1..=MAXIMUM_DISCOVERY_PAGE_SIZE).contains(&request.page_size)
-        || request
-            .cursor
-            .as_ref()
-            .is_some_and(|cursor| cursor.is_empty() || cursor.len() > 4096)
-    {
+    if context.operation_id.is_empty() || context.operation_id.len() > 256 {
         return Err(WireError::InvalidDiscovery);
     }
+    discovery::validate_request(request.page_size, request.cursor.as_deref())?;
     crate::validation::key(
         context
             .source_key
@@ -59,45 +139,9 @@ pub fn validate_completion_library(
     library: &wire::CompletionLibrary,
     account: &model::Identity,
 ) -> Result<operation::Behavior, WireError> {
-    if prost::Message::encoded_len(library) > 256 * 1024 || library.fields.len() > 32 {
-        return Err(WireError::LimitExceeded);
-    }
-    if model::Identity::try_from(required(library.account.clone(), "library.account")?)? != *account
-    {
-        return Err(WireError::InvalidDiscovery);
-    }
-    let behavior =
-        operation::Behavior::try_from(required(library.behavior.clone(), "library.behavior")?)?;
-    validate_discovery_fields(&library.fields, &behavior)?;
-    Ok(behavior)
-}
-
-fn validate_discovery_fields(
-    fields: &[wire::CompletionSubjectField],
-    behavior: &operation::Behavior,
-) -> Result<(), WireError> {
-    if fields.len() > 32 {
-        return Err(WireError::LimitExceeded);
-    }
-    let mut seen = BTreeSet::new();
-    for field in fields {
-        let field_name = model::Name::new(&field.field)?;
-        model::Name::new(&field.group)?;
-        let units = decode_names(field.unit_kinds.clone(), "discovery.unit_kinds")?;
-        if !seen.insert(field_name.clone())
-            || units.is_empty()
-            || !units.is_subset(&behavior.units)
-            || !(field.readable || field.writable)
-            || (field.writable
-                && !behavior
-                    .operations
-                    .iter()
-                    .any(|operation| operation.effect_fields.contains(&field_name)))
-        {
-            return Err(WireError::InvalidDiscovery);
-        }
-    }
-    Ok(())
+    let decoded = discovery::Library::try_from(library.clone())?;
+    decoded.validate(account)?;
+    Ok(decoded.behavior)
 }
 
 pub fn validate_completion_subject_page(
@@ -106,56 +150,72 @@ pub fn validate_completion_subject_page(
     account: &model::Identity,
 ) -> Result<(), WireError> {
     validate_discovery_request(request)?;
-    if prost::Message::encoded_len(page) > 1024 * 1024
-        || page.subjects.len() > request.page_size as usize
+    discovery::Page::try_from(page.clone())?
+        .validate(account, request.page_size, request.cursor.as_deref())
+        .map_err(Into::into)
+}
+
+pub fn decode_state(
+    value: wire::CompletionReadResult,
+    account: &model::Identity,
+    requested: &[model::Identity],
+    behavior: &operation::Behavior,
+) -> Result<state::State, WireError> {
+    if value.subjects.len() > state::MAXIMUM_STATE_ITEMS
+        || value.observations.len() > state::MAXIMUM_STATE_ITEMS
+        || value.access.len() > state::MAXIMUM_STATE_ITEMS
+        || value.references.len() > state::MAXIMUM_STATE_ITEMS
+        || value.field_observations.len() > state::MAXIMUM_STATE_ITEMS
     {
         return Err(WireError::LimitExceeded);
     }
-    if let Some(cursor) = &page.next_cursor
-        && (cursor.is_empty()
-            || cursor.len() > 4096
-            || request.cursor.as_ref() == Some(cursor)
-            || page.subjects.is_empty())
-    {
-        return Err(WireError::InvalidDiscovery);
-    }
-    let library = page
-        .library
-        .as_ref()
-        .ok_or(WireError::Missing("page.library"))?;
-    let behavior = validate_completion_library(library, account)?;
-    let mut seen = BTreeSet::new();
-    for descriptor in &page.subjects {
-        let subject =
-            model::Subject::try_from(required(descriptor.subject.clone(), "descriptor.subject")?)?;
-        if !seen.insert(subject.identity)
-            || subject.label.len() > 4096
-            || subject.label.chars().any(char::is_control)
-            || !behavior.subject_roles.contains(&subject.role)
-            || descriptor.fields.is_empty()
-        {
-            return Err(WireError::InvalidDiscovery);
+    let decoded = state::State {
+        subjects: value
+            .subjects
+            .into_iter()
+            .map(TryInto::try_into)
+            .collect::<Result<_, _>>()?,
+        observations: value
+            .observations
+            .into_iter()
+            .map(TryInto::try_into)
+            .collect::<Result<_, _>>()?,
+        access: value
+            .access
+            .into_iter()
+            .map(|access| decode_access(access, behavior))
+            .collect::<Result<_, _>>()?,
+        references: value
+            .references
+            .into_iter()
+            .map(TryInto::try_into)
+            .collect::<Result<_, _>>()?,
+        field_observations: value
+            .field_observations
+            .into_iter()
+            .map(TryInto::try_into)
+            .collect::<Result<_, _>>()?,
+    };
+    decoded
+        .validate(account, requested, behavior)
+        .map_err(WireError::InvalidState)?;
+    Ok(decoded)
+}
+
+impl From<state::State> for wire::CompletionReadResult {
+    fn from(value: state::State) -> Self {
+        Self {
+            subjects: value.subjects.into_iter().map(Into::into).collect(),
+            observations: value.observations.into_iter().map(Into::into).collect(),
+            access: value.access.into_iter().map(Into::into).collect(),
+            references: value.references.into_iter().map(Into::into).collect(),
+            field_observations: value
+                .field_observations
+                .into_iter()
+                .map(Into::into)
+                .collect(),
         }
-        validate_discovery_fields(&descriptor.fields, &behavior)?;
-        for field in &descriptor.fields {
-            let declared = library
-                .fields
-                .iter()
-                .find(|declared| declared.field == field.field)
-                .ok_or(WireError::InvalidDiscovery)?;
-            if field.group != declared.group
-                || field.readable && !declared.readable
-                || field.writable && !declared.writable
-                || field
-                    .unit_kinds
-                    .iter()
-                    .any(|unit| !declared.unit_kinds.contains(unit))
-            {
-                return Err(WireError::InvalidDiscovery);
-            }
-        }
     }
-    Ok(())
 }
 
 fn required<T>(value: Option<T>, field: &'static str) -> Result<T, WireError> {

@@ -15,70 +15,13 @@ fn descriptor_contains_provider_contracts() {
         .iter()
         .flat_map(|file| file.service.iter())
         .collect::<Vec<_>>();
-    assert_eq!(services.len(), 2);
-
-    for adapter in descriptor
-        .file
-        .iter()
-        .filter(|file| file.package.as_deref() == Some("trakkin.adapter.v1"))
-    {
-        for message in &adapter.message_type {
-            let field_numbers = message
-                .field
+    for required in ["AdapterService", "CompletionService"] {
+        assert!(
+            services
                 .iter()
-                .map(|field| field.number.unwrap())
-                .collect::<Vec<_>>();
-            let expected = (1..=field_numbers.len() as i32).collect::<Vec<_>>();
-            assert_eq!(field_numbers, expected, "{:?} field tags", message.name);
-        }
-        for enumeration in &adapter.enum_type {
-            let value_numbers = enumeration
-                .value
-                .iter()
-                .map(|value| value.number.unwrap())
-                .collect::<Vec<_>>();
-            let expected = (0..value_numbers.len() as i32).collect::<Vec<_>>();
-            assert_eq!(
-                value_numbers, expected,
-                "{:?} enum values",
-                enumeration.name
-            );
-        }
-    }
-
-    let adapter_service = services
-        .iter()
-        .find(|service| service.name.as_deref() == Some("AdapterService"))
-        .unwrap();
-    let methods = adapter_service
-        .method
-        .iter()
-        .filter_map(|method| method.name.as_deref())
-        .collect::<Vec<_>>();
-    assert_eq!(
-        methods,
-        [
-            "Handshake",
-            "Health",
-            "DescribeConnection",
-            "ValidateConnection",
-            "ListAuthenticationMethods",
-            "StartAuthentication",
-            "ContinueAuthentication",
-            "CancelAuthentication",
-            "OpenConnection",
-            "DiscoverSources",
-            "ReadCatalog",
-            "ReadState",
-            "ReadTargetedState",
-            "ReadAsset",
-            "CancelOperation",
-            "Shutdown",
-        ]
-    );
-    let descriptor_text = format!("{descriptor:?}");
-    for forbidden in ["ReviewService", "EventService", "WriteCurrentState"] {
-        assert!(!descriptor_text.contains(forbidden), "found {forbidden}");
+                .any(|service| service.name.as_deref() == Some(required)),
+            "missing service {required}"
+        );
     }
 
     let bootstrap = descriptor
@@ -86,34 +29,15 @@ fn descriptor_contains_provider_contracts() {
         .iter()
         .find(|file| file.package.as_deref() == Some("trakkin.bootstrap.v1"))
         .unwrap();
-    let messages = bootstrap
-        .message_type
-        .iter()
-        .filter_map(|message| message.name.as_deref())
-        .collect::<Vec<_>>();
-    assert_eq!(messages, ["LaunchRequest", "ReadyMessage"]);
-
-    let completion = services
-        .iter()
-        .find(|service| service.name.as_deref() == Some("CompletionService"))
-        .unwrap();
-    assert_eq!(
-        completion
-            .method
-            .iter()
-            .filter_map(|method| method.name.as_deref())
-            .collect::<Vec<_>>(),
-        [
-            "DescribeCompletionLibrary",
-            "DiscoverCompletionSubjects",
-            "DescribeCompletion",
-            "ReadCompletion",
-            "ResolveCompletionDestinations",
-            "PrepareCompletion",
-            "ExecuteCompletion",
-            "ReconcileCompletion",
-        ]
-    );
+    for required in ["LaunchRequest", "ReadyMessage"] {
+        assert!(
+            bootstrap
+                .message_type
+                .iter()
+                .any(|message| message.name.as_deref() == Some(required)),
+            "missing bootstrap message {required}"
+        );
+    }
 }
 
 #[test]

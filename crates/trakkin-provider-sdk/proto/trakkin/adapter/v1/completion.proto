@@ -8,9 +8,7 @@ import "trakkin/adapter/v1/adapter.proto";
 service CompletionService {
   rpc DescribeCompletionLibrary(DescribeCompletionLibraryRequest) returns (DescribeCompletionLibraryResponse);
   rpc DiscoverCompletionSubjects(DiscoverCompletionSubjectsRequest) returns (DiscoverCompletionSubjectsResponse);
-  rpc DescribeCompletion(DescribeCompletionRequest) returns (DescribeCompletionResponse);
   rpc ReadCompletion(ReadCompletionRequest) returns (ReadCompletionResponse);
-  rpc ResolveCompletionDestinations(ResolveCompletionDestinationsRequest) returns (ResolveCompletionDestinationsResponse);
   rpc PrepareCompletion(PrepareCompletionRequest) returns (PrepareCompletionResponse);
   rpc ExecuteCompletion(ExecuteCompletionRequest) returns (ExecuteCompletionResponse);
   rpc ReconcileCompletion(ReconcileCompletionRequest) returns (ReconcileCompletionResponse);
@@ -316,18 +314,6 @@ message CompletionContext {
   Key source_key = 2;
 }
 
-message DescribeCompletionRequest {
-  CompletionContext context = 1;
-  repeated CompletionIdentity subjects = 2;
-}
-
-message DescribeCompletionResponse {
-  oneof result {
-    CompletionBehavior behavior = 1;
-    OperationFailure failure = 2;
-  }
-}
-
 message ReadCompletionRequest {
   CompletionContext context = 1;
   repeated CompletionIdentity subjects = 2;
@@ -344,35 +330,6 @@ message CompletionReadResult {
 message ReadCompletionResponse {
   oneof result {
     CompletionReadResult state = 1;
-    OperationFailure failure = 2;
-  }
-}
-
-message ResolveCompletionDestinationsRequest {
-  CompletionContext context = 1;
-  repeated CompletionSubject subjects = 2;
-}
-
-message CompletionCandidates {
-  repeated CompletionSubject subjects = 1;
-}
-
-message CompletionDestinationResolution {
-  CompletionIdentity requested = 1;
-  oneof result {
-    CompletionSubject exact = 2;
-    CompletionCandidates ambiguous = 3;
-    google.protobuf.Empty unavailable = 4;
-  }
-}
-
-message CompletionDestinationResolutions {
-  repeated CompletionDestinationResolution resolutions = 1;
-}
-
-message ResolveCompletionDestinationsResponse {
-  oneof result {
-    CompletionDestinationResolutions destinations = 1;
     OperationFailure failure = 2;
   }
 }

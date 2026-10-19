@@ -185,6 +185,14 @@ impl Domain {
         &self.units
     }
 
+    pub fn validate_units(&self, units: &BTreeSet<Identity>) -> Result<(), ModelError> {
+        let known: BTreeSet<_> = self.units.iter().collect();
+        if !units.iter().all(|unit| known.contains(unit)) {
+            return Err(ModelError::UnknownUnit);
+        }
+        Ok(())
+    }
+
     pub fn closed(&self) -> bool {
         self.closed
     }
@@ -230,10 +238,7 @@ impl Progress {
     pub fn validate(&self, domain: &Domain) -> Result<(), ModelError> {
         match self {
             Self::Items { completed } => {
-                let known: BTreeSet<_> = domain.units.iter().collect();
-                if !completed.iter().all(|unit| known.contains(unit)) {
-                    return Err(ModelError::UnknownUnit);
-                }
+                domain.validate_units(completed)?;
             }
             Self::Prefix { completed } => {
                 if domain.ordering != Ordering::Ordered {
@@ -434,6 +439,34 @@ pub fn require_same_domain(left: &Domain, right: &Domain) -> Result<(), ModelErr
     Ok(())
 }
 
+pub fn bounded_json_size(value: &impl Serialize, limit: usize) -> Result<usize, serde_json::Error> {
+    struct JsonSize {
+        bytes: usize,
+        limit: usize,
+    }
+
+    impl std::io::Write for JsonSize {
+        fn write(&mut self, bytes: &[u8]) -> std::io::Result<usize> {
+            self.bytes = self
+                .bytes
+                .checked_add(bytes.len())
+                .filter(|size| *size <= self.limit)
+                .ok_or_else(|| {
+                    std::io::Error::other("serialized completion data exceeds limits")
+                })?;
+            Ok(bytes.len())
+        }
+
+        fn flush(&mut self) -> std::io::Result<()> {
+            Ok(())
+        }
+    }
+
+    let mut size = JsonSize { bytes: 0, limit };
+    serde_json::to_writer(&mut size, value)?;
+    Ok(size.bytes)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -620,6 +653,33 @@ mod tests {
         )
         .unwrap();
         assert_eq!(original, reordered);
+    }
+
+    #[test]
+    fn borrowed_unit_selections_validate_without_assuming_domain_order() {
+        let declared = vec![identity("z"), identity("a"), identity("m")];
+        for ordering in [Ordering::Ordered, Ordering::Unordered] {
+            let domain = Domain::new(
+                identity("chapters"),
+                "1",
+                Name::new("unit:chapter").unwrap(),
+                ordering,
+                declared.clone(),
+                false,
+            )
+            .unwrap();
+            domain.validate_units(&BTreeSet::new()).unwrap();
+            domain
+                .validate_units(&BTreeSet::from([identity("a"), identity("z")]))
+                .unwrap();
+            assert_eq!(
+                domain.validate_units(&BTreeSet::from([identity("a"), identity("missing")])),
+                Err(ModelError::UnknownUnit)
+            );
+            if ordering == Ordering::Ordered {
+                assert_eq!(domain.units(), declared.as_slice());
+            }
+        }
     }
 
     #[test]
