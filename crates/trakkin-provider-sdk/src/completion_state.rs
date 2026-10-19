@@ -404,6 +404,40 @@ mod tests {
     }
 
     #[test]
+    fn typed_and_wire_state_share_json_value_limits() {
+        for (value, valid) in [
+            ("x".repeat(65_534), true),
+            ("x".repeat(65_535), false),
+            ("\"".repeat(32_767), true),
+            ("\"".repeat(32_768), false),
+        ] {
+            for explicit_field in [false, true] {
+                let (mut state, behavior) = fixture();
+                let value = serde_json::Value::String(value.clone());
+                if explicit_field {
+                    state.field_observations[0].value = BeforeValue::Known(value);
+                } else {
+                    state.observations[0].native_value = value;
+                }
+                assert_eq!(
+                    state.validate(&identity("account"), &[], &behavior).is_ok(),
+                    valid
+                );
+                assert_eq!(
+                    crate::completion_wire::decode_state(
+                        state.into(),
+                        &identity("account"),
+                        &[],
+                        &behavior,
+                    )
+                    .is_ok(),
+                    valid
+                );
+            }
+        }
+    }
+
+    #[test]
     fn bounded_json_counts_serialized_bytes_without_materializing_a_buffer() {
         let value = serde_json::json!({"escaped": "line\n\"quoted\"", "items": [null, true, 17]});
         let size = serde_json::to_vec(&value).unwrap().len();

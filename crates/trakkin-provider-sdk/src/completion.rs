@@ -382,6 +382,8 @@ pub struct Observation {
     pub native_value: serde_json::Value,
 }
 
+pub const MAXIMUM_NATIVE_VALUE_BYTES: usize = 65_536;
+
 impl Observation {
     pub fn validate(&self) -> Result<(), ModelError> {
         if self.behavior_revision.is_empty()
@@ -398,6 +400,8 @@ impl Observation {
         if self.presence == Presence::MeaningfulAbsence && self.quality != ReadQuality::Complete {
             return Err(ModelError::IncompleteAbsence);
         }
+        bounded_json_size(&self.native_value, MAXIMUM_NATIVE_VALUE_BYTES)
+            .map_err(|_| ModelError::NativeValueTooLarge)?;
         Ok(())
     }
 }
@@ -428,6 +432,8 @@ pub enum ModelError {
     ProgressOutOfBounds,
     #[error("incomplete reads cannot establish meaningful absence")]
     IncompleteAbsence,
+    #[error("native observation value exceeds its serialized byte limit")]
+    NativeValueTooLarge,
     #[error("progress domains differ in identity, revision, unit, ordering, or extent")]
     IncompatibleDomain,
 }

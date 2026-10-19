@@ -43,6 +43,10 @@ ambiguous reference domains, inconsistent canonical groups, and overlapping or
 unsupported field evidence. Collection and aggregate evidence limits apply to
 typed sessions as well as process-backed providers.
 
+Each native completion value and known explicit field value is limited to 65,536
+serialized JSON bytes, including quotes and escaping. Typed observation validation
+enforces this bound with streaming byte accounting, matching the wire decoder.
+
 `completion_wire::decode_state` performs bounded collection conversion and invokes
 that same validator. Use `completion::bounded_json_size` when measuring serialized
 completion evidence without allocating a second buffer. Valid state is evidence,

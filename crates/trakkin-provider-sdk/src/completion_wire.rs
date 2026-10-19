@@ -6,7 +6,7 @@ use crate::{
 };
 
 const MAXIMUM_COLLECTION_ITEMS: usize = 100_000;
-const MAXIMUM_JSON_BYTES: usize = 65_536;
+const MAXIMUM_JSON_BYTES: usize = model::MAXIMUM_NATIVE_VALUE_BYTES;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq, thiserror::Error)]
 pub enum WireError {

@@ -3,7 +3,9 @@ use std::fmt;
 
 use serde::{Deserialize, Serialize};
 
-use crate::completion::{Domain, Identity, ModelError, Name, Progress, ReadQuality};
+use crate::completion::{
+    Domain, Identity, ModelError, Name, Progress, ReadQuality, bounded_json_size,
+};
 
 pub const MAXIMUM_EFFECTS: usize = 256;
 pub const MAXIMUM_COMMAND_BYTES: usize = 65_536;
@@ -79,7 +81,7 @@ impl FieldObservation {
                 .as_ref()
                 .is_some_and(|revision| !valid_revision(revision))
             || self.acquired_at_milliseconds < 0
-            || matches!(&self.value, BeforeValue::Known(value) if value.to_string().len() > MAXIMUM_FIELD_VALUE_BYTES)
+            || matches!(&self.value, BeforeValue::Known(value) if bounded_json_size(value, MAXIMUM_FIELD_VALUE_BYTES).is_err())
         {
             return Err(OperationError::InvalidFieldObservation);
         }
